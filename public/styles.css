@@ -33,6 +33,7 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--text);
+  overflow: hidden;
 }
 
 button,
@@ -78,8 +79,11 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 276px minmax(720px, 1fr) 392px;
-  min-height: 100vh;
+  grid-template-columns: minmax(236px, 276px) minmax(0, 1fr) minmax(340px, 392px);
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--page);
 }
 
@@ -88,9 +92,11 @@ button {
   flex-direction: column;
   gap: 22px;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--sidebar);
   padding: 24px 10px 18px;
+  overflow: hidden;
 }
 
 .brand {
@@ -165,7 +171,11 @@ button {
 
 .record-rail,
 .provider-rail {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .rail-title {
@@ -177,15 +187,20 @@ button {
 }
 
 .provider-list {
-  max-height: calc((100vh - 300px) / 2);
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .record-list {
   display: grid;
+  align-content: start;
+  flex: 1 1 0;
   gap: 4px;
-  max-height: calc((100vh - 300px) / 2);
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -283,15 +298,26 @@ button {
 
 .workspace {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--page);
+  overflow: hidden;
 }
 
 .view {
-  min-height: 100vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.view-chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .is-hidden {
@@ -299,6 +325,7 @@ button {
 }
 
 .workspace-topbar {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -391,10 +418,9 @@ button {
 }
 
 .message-list {
-  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 88px 56px 260px;
+  padding: 42px 56px 38px;
 }
 
 .empty-state {
@@ -509,10 +535,8 @@ button {
 }
 
 .composer {
-  position: sticky;
-  bottom: 0;
+  position: relative;
   z-index: 5;
-  margin-top: auto;
   border-top: 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), white 24%);
   padding: 18px 54px 28px;
@@ -646,6 +670,8 @@ textarea:focus {
 
 .settings-panel {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -860,7 +886,11 @@ output {
 
 .benchmark-grid,
 .provider-matrix {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
+  align-content: start;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
   padding: 12px 34px 34px;
@@ -937,38 +967,61 @@ pre {
 
 @media (max-width: 1260px) {
   .app-shell {
-    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-columns: 220px minmax(0, 1fr) 320px;
+  }
+
+  .sidebar {
+    gap: 14px;
   }
 
   .settings-panel {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--line);
-    border-left: 0;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 22px 18px;
   }
 
-  .panel-header,
-  .settings-section,
-  .docs-link {
-    grid-column: 1 / -1;
+  .workspace-topbar,
+  .composer,
+  .message-list,
+  .benchmark-grid,
+  .provider-matrix {
+    padding-left: 24px;
+    padding-right: 24px;
   }
 }
 
 @media (max-width: 760px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    overflow: visible;
+  }
+
+  .workspace,
+  .view,
+  .settings-panel {
+    height: auto;
+    overflow: visible;
   }
 
   .provider-list {
     display: flex;
     max-height: none;
     overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .record-list {
+    max-height: 240px;
   }
 
   .provider-pill {
@@ -999,6 +1052,10 @@ pre {
   .message {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .message-list {
+    overflow: visible;
   }
 
   .message-role {

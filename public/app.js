@@ -848,6 +848,8 @@ async function submitChat(event) {
   setStatus(t("connecting"));
 
   state.abortController = new AbortController();
+  let streamCompleted = false;
+  let streamFailed = false;
 
   try {
     const response = await fetch("/api/chat", {
@@ -879,20 +881,29 @@ async function submitChat(event) {
         renderMessages();
       }
       if (eventName === "error") {
+        streamFailed = true;
         assistantMessage.content += `\n\n[${t("error")}] ${data.message || "Request failed"}`;
         if (data.details) {
           assistantMessage.content += `\n${typeof data.details === "string" ? data.details : JSON.stringify(data.details, null, 2)}`;
         }
         renderMessages();
         setStatus(t("error"));
+        state.abortController = null;
+        setBusy(false);
       }
       if (eventName === "done") {
+        streamCompleted = true;
         setStatus(`${t("done")} · ${data.totalMs}ms`);
+        state.abortController = null;
+        setBusy(false);
         if (state.currentRecordId) {
           saveCurrentRecord(true);
         }
       }
     });
+    if (!streamCompleted && !streamFailed) {
+      setStatus(t("done"));
+    }
   } catch (error) {
     if (error.name !== "AbortError") {
       assistantMessage.content += `\n\n[${t("error")}] ${error.message}`;
@@ -950,6 +961,13 @@ async function readEventStream(body, onEvent) {
       if (parsed) {
         onEvent(parsed.event, parsed.data);
       }
+    }
+  }
+
+  if (buffer.trim()) {
+    const parsed = parseSseFrame(buffer);
+    if (parsed) {
+      onEvent(parsed.event, parsed.data);
     }
   }
 }
