@@ -19,7 +19,7 @@ PUBLIC_DIR = ROOT / "public"
 DATA_DIR = ROOT / "data"
 RECORDS_FILE = DATA_DIR / "records.json"
 SESSION_SECRET_FILE = DATA_DIR / "session_secret"
-MAX_BODY_BYTES = 1024 * 1024
+MAX_BODY_BYTES = 12 * 1024 * 1024
 ALLOWED_USER = "yiiwang"
 SESSION_COOKIE = "studio_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
@@ -63,7 +63,19 @@ PROVIDERS = [
         "adapter": "openai-compatible",
         "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
         "defaultModel": "glm-4.7",
-        "models": ["glm-4.7", "glm-4.6", "glm-4.5", "glm-4.5v", "glm-z1-air"],
+        "models": [
+            "glm-4.7",
+            "glm-4.6",
+            "glm-4.5",
+            "glm-4.5-air",
+            "glm-4.5-x",
+            "glm-4.5-airx",
+            "glm-4.5-flash",
+            "glm-4.5v",
+            "glm-4.1v-thinking",
+            "glm-z1-air",
+            "glm-z1-flash",
+        ],
         "docs": "https://docs.bigmodel.cn/api-reference",
         "thinkingMode": "thinking-object",
         "capabilities": ["stream", "text", "thinking", "multimodal"],
@@ -75,11 +87,41 @@ PROVIDERS = [
         "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "defaultModel": "qwen-plus",
         "models": [
+            "qwen3.6-plus",
+            "qwen3.5-plus",
+            "qwen3.5-flash",
             "qwen3-max",
             "qwen-plus",
             "qwen-flash",
+            "qwen-turbo",
+            "qwen3-coder-plus",
+            "qwen3-coder-flash",
             "qwen3-235b-a22b-thinking-2507",
+            "qwen3-235b-a22b-instruct-2507",
+            "qwen3-32b",
+            "qwen3-14b",
+            "qwen3-8b",
+            "qwen3-vl-plus",
+            "qwen3-vl-flash",
+            "qwen3-vl-235b-a22b-thinking",
+            "qwen3-vl-235b-a22b-instruct",
+            "qwen3-vl-32b-instruct",
+            "qwen3-vl-30b-a3b-thinking",
+            "qwen3-vl-30b-a3b-instruct",
+            "qwen3-vl-8b-thinking",
+            "qwen3-vl-8b-instruct",
+            "qwen-vl-max",
             "qwen-vl-max-latest",
+            "qwen-vl-plus",
+            "qwen-vl-plus-latest",
+            "qwen-vl-ocr",
+            "qwen-vl-ocr-latest",
+            "qvq-max",
+            "qvq-max-latest",
+            "qvq-plus",
+            "qvq-plus-latest",
+            "qwen3-omni-flash",
+            "qwen-omni-turbo",
         ],
         "docs": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
         "thinkingMode": "enable-thinking",
@@ -676,6 +718,9 @@ def sanitize_messages_for_record(messages):
             "role": role,
             "content": safe_string(message.get("content"), 50000),
         }
+        attachments = sanitize_attachments(message.get("attachments"))
+        if attachments:
+            item["attachments"] = attachments
         if message.get("reasoning"):
             item["reasoning"] = safe_string(message.get("reasoning"), 50000)
         if isinstance(message.get("usage"), dict):
@@ -720,10 +765,49 @@ def normalize_messages(messages, system_prompt):
     for message in messages:
         role = str(message.get("role") or "").lower()
         content = message.get("content")
-        if role in {"system", "user", "assistant"} and isinstance(content, str) and content.strip():
-            normalized.append({"role": role, "content": content.strip()})
+        attachments = sanitize_attachments(message.get("attachments"))
+        if role in {"system", "user", "assistant"} and isinstance(content, str) and (content.strip() or attachments):
+            item = {"role": role, "content": content.strip()}
+            if role == "user" and attachments:
+                item["attachments"] = attachments
+            normalized.append(item)
 
     return normalized[-40:]
+
+
+def sanitize_attachments(attachments):
+    if not isinstance(attachments, list):
+        return []
+    sanitized = []
+    for attachment in attachments[:8]:
+        if not isinstance(attachment, dict):
+            continue
+        kind = str(attachment.get("kind") or "").strip()
+        mime_type = str(attachment.get("mimeType") or "").strip()
+        name = safe_string(attachment.get("name"), 180) or "attachment"
+        if kind == "image" and mime_type.startswith("image/"):
+            data_url = str(attachment.get("dataUrl") or "").strip()
+            if data_url.startswith("data:image/") and len(data_url) <= 7_000_000:
+                sanitized.append(
+                    {
+                        "kind": "image",
+                        "name": name,
+                        "mimeType": mime_type,
+                        "dataUrl": data_url,
+                    }
+                )
+        elif kind == "text":
+            text = safe_string(attachment.get("text"), 250000)
+            if text:
+                sanitized.append(
+                    {
+                        "kind": "text",
+                        "name": name,
+                        "mimeType": mime_type or "text/plain",
+                        "text": text,
+                    }
+                )
+    return sanitized
 
 
 def build_upstream_request(provider, payload):
@@ -817,11 +901,53 @@ def dedupe_models(models):
     return sorted(unique, key=lambda item: str(item["id"]).lower())
 
 
+def openai_message_content(provider, message):
+    attachments = message.get("attachments") or []
+    if not attachments:
+        return message["content"]
+    parts = []
+    text = text_with_attachments(message["content"], attachments)
+    if text:
+        parts.append({"type": "text", "text": text})
+    for attachment in attachments:
+        if attachment.get("kind") == "image":
+            image_url = attachment["dataUrl"]
+            if provider["id"] == "zhipu":
+                _, data = data_url_payload(image_url)
+                image_url = data or image_url
+            parts.append({"type": "image_url", "image_url": {"url": image_url}})
+    return parts
+
+
+def text_with_attachments(content, attachments):
+    text_parts = [content] if content else []
+    for attachment in attachments:
+        if attachment.get("kind") == "text":
+            text_parts.append(
+                f"\n\n[Attached file: {attachment.get('name', 'file')}]\n{attachment.get('text', '')}"
+            )
+    return "\n".join(part for part in text_parts if part)
+
+
+def data_url_payload(data_url):
+    if "," not in data_url:
+        return "", ""
+    header, data = data_url.split(",", 1)
+    mime_type = header.removeprefix("data:").split(";", 1)[0] or "application/octet-stream"
+    return mime_type, data
+
+
 def build_openai_compatible_request(provider, payload):
     params = normalize_parameters(payload.get("parameters") or {})
     body = {
         "model": payload["model"],
-        "messages": payload["messages"],
+        "messages": [
+            {
+                "role": message["role"],
+                "content": openai_message_content(provider, message),
+            }
+            for message in payload["messages"]
+        ],
         "stream": True,
         "stream_options": {"include_usage": True},
         "temperature": params["temperature"],
@@ -851,14 +977,37 @@ def build_openai_compatible_request(provider, payload):
 def build_anthropic_request(provider, payload):
     params = normalize_parameters(payload.get("parameters") or {})
     system_messages = [message["content"] for message in payload["messages"] if message["role"] == "system"]
-    messages = [
-        {
-            "role": "assistant" if message["role"] == "assistant" else "user",
-            "content": message["content"],
-        }
-        for message in payload["messages"]
-        if message["role"] != "system"
-    ]
+    messages = []
+    for message in payload["messages"]:
+        if message["role"] == "system":
+            continue
+        content = message["content"]
+        attachments = message.get("attachments") or []
+        if message["role"] == "user" and attachments:
+            blocks = []
+            for attachment in attachments:
+                if attachment.get("kind") == "image":
+                    mime_type, data = data_url_payload(attachment["dataUrl"])
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": data,
+                            },
+                        }
+                    )
+            text = text_with_attachments(content, attachments)
+            if text:
+                blocks.append({"type": "text", "text": text})
+            content = blocks or content
+        messages.append(
+            {
+                "role": "assistant" if message["role"] == "assistant" else "user",
+                "content": content,
+            }
+        )
     body = {
         "model": payload["model"],
         "max_tokens": params["maxTokens"],
@@ -891,14 +1040,25 @@ def build_gemini_request(provider, payload):
     system_prompt = "\n\n".join(
         message["content"] for message in payload["messages"] if message["role"] == "system"
     )
-    contents = [
-        {
-            "role": "model" if message["role"] == "assistant" else "user",
-            "parts": [{"text": message["content"]}],
-        }
-        for message in payload["messages"]
-        if message["role"] != "system"
-    ]
+    contents = []
+    for message in payload["messages"]:
+        if message["role"] == "system":
+            continue
+        attachments = message.get("attachments") or []
+        parts = []
+        text = text_with_attachments(message["content"], attachments)
+        if text:
+            parts.append({"text": text})
+        for attachment in attachments:
+            if attachment.get("kind") == "image":
+                mime_type, data = data_url_payload(attachment["dataUrl"])
+                parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
+        contents.append(
+            {
+                "role": "model" if message["role"] == "assistant" else "user",
+                "parts": parts or [{"text": message["content"]}],
+            }
+        )
     body = {
         "contents": contents,
         "generationConfig": {

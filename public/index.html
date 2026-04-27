@@ -84,9 +84,14 @@
             </div>
             <label class="sr-only" for="promptInput">Prompt</label>
             <textarea id="promptInput" name="prompt" rows="4" placeholder="输入消息，使用当前右侧配置发起流式请求"></textarea>
+            <div id="attachmentTray" class="attachment-tray"></div>
             <div class="composer-footer">
               <span id="runStatus">Ready</span>
-              <button id="sendButton" class="primary-button" type="submit" data-i18n="send">Send</button>
+              <div class="composer-actions">
+                <label class="ghost-button attach-button" for="attachmentInput" data-i18n="attach">Attach</label>
+                <input id="attachmentInput" class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" />
+                <button id="sendButton" class="primary-button" type="submit" data-i18n="send">Send</button>
+              </div>
             </div>
           </form>
         </section>

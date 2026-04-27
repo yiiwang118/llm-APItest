@@ -25,6 +25,8 @@ const elements = {
   messageList: document.querySelector("#messageList"),
   chatForm: document.querySelector("#chatForm"),
   promptInput: document.querySelector("#promptInput"),
+  attachmentInput: document.querySelector("#attachmentInput"),
+  attachmentTray: document.querySelector("#attachmentTray"),
   sendButton: document.querySelector("#sendButton"),
   stopStream: document.querySelector("#stopStream"),
   saveRecord: document.querySelector("#saveRecord"),
@@ -68,6 +70,11 @@ const translations = {
     loginFailed: "Sign in failed",
     recordsEmpty: "No saved records",
     deleteRecord: "Delete",
+    attach: "Attach",
+    attachments: "Attachments",
+    removeAttachment: "Remove",
+    unsupportedFile: "Only images and text files are supported for local upload",
+    fileTooLarge: "File is too large",
     send: "Send",
     benchmarkEyebrow: "Evaluation",
     benchmarkTitle: "Benchmark Framework",
@@ -137,6 +144,11 @@ const translations = {
     loginFailed: "登录失败",
     recordsEmpty: "暂无保存记录",
     deleteRecord: "删除",
+    attach: "上传",
+    attachments: "附件",
+    removeAttachment: "移除",
+    unsupportedFile: "本地上传暂时只支持图片和文本文件",
+    fileTooLarge: "文件过大",
     send: "发送",
     benchmarkEyebrow: "评测",
     benchmarkTitle: "Benchmark 框架",
@@ -194,6 +206,7 @@ const state = {
   benchmarks: [],
   records: [],
   messages: [],
+  attachments: [],
   modelLists: {},
   activeProvider: null,
   currentRecordId: null,
@@ -280,6 +293,7 @@ function bindEvents() {
   });
   elements.temperatureInput.addEventListener("input", syncSliderLabels);
   elements.topPInput.addEventListener("input", syncSliderLabels);
+  elements.attachmentInput.addEventListener("change", handleAttachmentFiles);
   elements.chatForm.addEventListener("submit", submitChat);
   elements.stopStream.addEventListener("click", stopStream);
   elements.saveRecord.addEventListener("click", () => saveCurrentRecord(false));
@@ -287,6 +301,12 @@ function bindEvents() {
   elements.dryRunBenchmark.addEventListener("click", dryRunBenchmark);
   elements.languageToggle.addEventListener("click", toggleLanguage);
   elements.logoutButton.addEventListener("click", logout);
+  elements.attachmentTray.addEventListener("click", (event) => {
+    const removeAttachmentButton = event.target.closest("[data-remove-attachment]");
+    if (removeAttachmentButton) {
+      removeAttachment(removeAttachmentButton.dataset.removeAttachment);
+    }
+  });
   elements.recordList.addEventListener("click", (event) => {
     const recordButton = event.target.closest("[data-record-id]");
     const deleteButton = event.target.closest("[data-delete-record]");
@@ -450,6 +470,96 @@ function renderRecords() {
       `
     )
     .join("");
+}
+
+async function handleAttachmentFiles(event) {
+  const files = Array.from(event.target.files || []);
+  for (const file of files) {
+    try {
+      const attachment = await readAttachment(file);
+      state.attachments.push(attachment);
+    } catch (error) {
+      setStatus(error.message);
+    }
+  }
+  elements.attachmentInput.value = "";
+  renderAttachments();
+}
+
+function readAttachment(file) {
+  const isImage = file.type.startsWith("image/");
+  const isText =
+    file.type.startsWith("text/") ||
+    ["application/json"].includes(file.type) ||
+    /\.(txt|md|csv|json)$/i.test(file.name);
+  const imageLimit = 4 * 1024 * 1024;
+  const textLimit = 250 * 1024;
+
+  if (isImage) {
+    if (file.size > imageLimit) {
+      return Promise.reject(new Error(`${t("fileTooLarge")}: ${file.name}`));
+    }
+    return readFile(file, "dataUrl").then((dataUrl) => ({
+      id: crypto.randomUUID(),
+      kind: "image",
+      name: file.name,
+      mimeType: file.type || "image/png",
+      size: file.size,
+      dataUrl
+    }));
+  }
+
+  if (isText) {
+    if (file.size > textLimit) {
+      return Promise.reject(new Error(`${t("fileTooLarge")}: ${file.name}`));
+    }
+    return readFile(file, "text").then((text) => ({
+      id: crypto.randomUUID(),
+      kind: "text",
+      name: file.name,
+      mimeType: file.type || "text/plain",
+      size: file.size,
+      text
+    }));
+  }
+
+  return Promise.reject(new Error(`${t("unsupportedFile")}: ${file.name}`));
+}
+
+function readFile(file, mode) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    if (mode === "dataUrl") {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
+  });
+}
+
+function renderAttachments() {
+  if (!state.attachments.length) {
+    elements.attachmentTray.innerHTML = "";
+    return;
+  }
+  elements.attachmentTray.innerHTML = state.attachments
+    .map(
+      (attachment) => `
+        <div class="attachment-chip">
+          ${attachment.kind === "image" ? `<img src="${escapeHtml(attachment.dataUrl)}" alt="" />` : `<span class="file-icon">TXT</span>`}
+          <span>${escapeHtml(attachment.name)}</span>
+          <button type="button" data-remove-attachment="${escapeHtml(attachment.id)}" title="${escapeHtml(t("removeAttachment"))}">×</button>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function removeAttachment(attachmentId) {
+  state.attachments = state.attachments.filter((attachment) => attachment.id !== attachmentId);
+  renderAttachments();
 }
 
 function renderBenchmarks() {
@@ -668,7 +778,7 @@ async function submitChat(event) {
   }
 
   const prompt = elements.promptInput.value.trim();
-  if (!prompt) {
+  if (!prompt && !state.attachments.length) {
     setStatus(t("promptEmpty"));
     return;
   }
@@ -679,10 +789,12 @@ async function submitChat(event) {
     return;
   }
 
-  const userMessage = { role: "user", content: prompt };
+  const userMessage = { role: "user", content: prompt, attachments: state.attachments };
   const assistantMessage = { role: "assistant", content: "", reasoning: "", usage: null };
   state.messages.push(userMessage, assistantMessage);
   elements.promptInput.value = "";
+  state.attachments = [];
+  renderAttachments();
   renderMessages();
   setBusy(true);
   setStatus(t("connecting"));
@@ -756,7 +868,11 @@ function buildPayload() {
     systemPrompt: elements.systemPromptInput.value.trim(),
     messages: state.messages
       .filter((message) => message.role === "user" || (message.role === "assistant" && message.content))
-      .map((message) => ({ role: message.role, content: message.content })),
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+        attachments: message.attachments || []
+      })),
     parameters: {
       temperature: Number(elements.temperatureInput.value),
       topP: Number(elements.topPInput.value),
@@ -834,6 +950,7 @@ function renderMessages() {
           <div class="message-role">${message.role === "user" ? t("you") : t("modelRole")}</div>
           <div class="message-body">
             ${renderReasoning(message)}
+            ${renderMessageAttachments(message)}
             <div class="message-content">${renderMarkdown(message.content || "")}</div>
             ${message.usage ? `<div class="usage-line">${escapeHtml(formatUsage(message.usage))}</div>` : ""}
           </div>
@@ -842,6 +959,23 @@ function renderMessages() {
     )
     .join("");
   elements.messageList.scrollTop = elements.messageList.scrollHeight;
+}
+
+function renderMessageAttachments(message) {
+  if (!message.attachments?.length) {
+    return "";
+  }
+  return `
+    <div class="message-attachments">
+      ${message.attachments
+        .map((attachment) =>
+          attachment.kind === "image"
+            ? `<img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name)}" />`
+            : `<span>${escapeHtml(attachment.name)}</span>`
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function renderReasoning(message) {
