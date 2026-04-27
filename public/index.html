@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LLM API Test Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary">
+        <div class="brand">
+          <span class="brand-mark">A</span>
+          <div>
+            <strong>API Studio</strong>
+            <span>LLM Gateway Lab</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item is-active" data-view="chat" type="button">
+            <span class="nav-icon">●</span>
+            Chat
+          </button>
+          <button class="nav-item" data-view="benchmarks" type="button">
+            <span class="nav-icon">◆</span>
+            Benchmark
+          </button>
+          <button class="nav-item" data-view="providers" type="button">
+            <span class="nav-icon">■</span>
+            Providers
+          </button>
+        </nav>
+
+        <div class="provider-rail">
+          <div class="rail-title">Providers</div>
+          <div id="providerRail" class="provider-list"></div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section id="chatView" class="view view-chat">
+          <header class="workspace-topbar">
+            <div>
+              <div class="eyebrow">Streaming Console</div>
+              <h1 id="sessionTitle">New chat</h1>
+            </div>
+            <div class="topbar-actions">
+              <button id="clearChat" class="ghost-button" type="button">Clear</button>
+              <button id="stopStream" class="ghost-button danger" type="button" disabled>Stop</button>
+            </div>
+          </header>
+
+          <div id="messageList" class="message-list" aria-live="polite"></div>
+
+          <form id="chatForm" class="composer">
+            <div class="prompt-row">
+              <button type="button" class="prompt-chip" data-prompt="用三句话介绍一下你当前模型的定位。">Model intro</button>
+              <button type="button" class="prompt-chip" data-prompt="给我一个用于测试推理能力的简短题目，并回答。">Reasoning test</button>
+              <button type="button" class="prompt-chip" data-prompt="把下面这段需求拆成后端、前端、测试三个任务：">Task split</button>
+            </div>
+            <label class="sr-only" for="promptInput">Prompt</label>
+            <textarea id="promptInput" name="prompt" rows="4" placeholder="输入消息，使用当前右侧配置发起流式请求"></textarea>
+            <div class="composer-footer">
+              <span id="runStatus">Ready</span>
+              <button id="sendButton" class="primary-button" type="submit">Send</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="benchmarksView" class="view is-hidden">
+          <header class="workspace-topbar compact">
+            <div>
+              <div class="eyebrow">Evaluation</div>
+              <h1>Benchmark Framework</h1>
+            </div>
+            <button id="dryRunBenchmark" class="ghost-button" type="button">Dry run</button>
+          </header>
+          <div id="benchmarkGrid" class="benchmark-grid"></div>
+        </section>
+
+        <section id="providersView" class="view is-hidden">
+          <header class="workspace-topbar compact">
+            <div>
+              <div class="eyebrow">Registry</div>
+              <h1>Provider Matrix</h1>
+            </div>
+          </header>
+          <div id="providerMatrix" class="provider-matrix"></div>
+        </section>
+      </main>
+
+      <aside class="settings-panel">
+        <div class="panel-header">
+          <div>
+            <span class="eyebrow">Runtime</span>
+            <h2>Model Settings</h2>
+          </div>
+          <span id="connectionBadge" class="status-badge">Local</span>
+        </div>
+
+        <div class="field-group">
+          <label for="providerSelect">Provider</label>
+          <select id="providerSelect"></select>
+        </div>
+
+        <div class="field-group">
+          <label for="modelInput">Model</label>
+          <input id="modelInput" list="modelOptions" autocomplete="off" />
+          <datalist id="modelOptions"></datalist>
+        </div>
+
+        <div class="field-group">
+          <label for="apiKeyInput">API Key</label>
+          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+        </div>
+
+        <details class="advanced" open>
+          <summary>Endpoint</summary>
+          <div class="field-group">
+            <label for="baseUrlInput">Base URL</label>
+            <input id="baseUrlInput" autocomplete="off" />
+          </div>
+        </details>
+
+        <div class="slider-group">
+          <div class="slider-head">
+            <label for="temperatureInput">Temperature</label>
+            <output id="temperatureValue">0.7</output>
+          </div>
+          <input id="temperatureInput" type="range" min="0" max="2" step="0.1" value="0.7" />
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-head">
+            <label for="topPInput">Top P</label>
+            <output id="topPValue">0.9</output>
+          </div>
+          <input id="topPInput" type="range" min="0" max="1" step="0.05" value="0.9" />
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label for="maxTokensInput">Max tokens</label>
+            <input id="maxTokensInput" type="number" min="128" max="32768" step="128" value="2048" />
+          </div>
+          <div class="field-group">
+            <label for="thinkingBudgetInput">Think budget</label>
+            <input id="thinkingBudgetInput" type="number" min="128" max="32768" step="128" value="2048" />
+          </div>
+        </div>
+
+        <label class="toggle-row">
+          <input id="thinkingToggle" type="checkbox" />
+          <span>Show reasoning stream</span>
+        </label>
+
+        <div class="field-group fill">
+          <label for="systemPromptInput">System prompt</label>
+          <textarea id="systemPromptInput" rows="6" placeholder="You are a helpful assistant."></textarea>
+        </div>
+
+        <div class="docs-link">
+          <a id="docsLink" href="#" target="_blank" rel="noreferrer">Provider docs</a>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
