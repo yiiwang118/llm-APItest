@@ -25,7 +25,19 @@ const elements = {
   docsLink: document.querySelector("#docsLink"),
   providerRail: document.querySelector("#providerRail"),
   providerMatrix: document.querySelector("#providerMatrix"),
-  benchmarkGrid: document.querySelector("#benchmarkGrid"),
+  benchTabs: document.querySelector("#benchTabs"),
+  benchPrompt: document.querySelector("#benchPrompt"),
+  benchTrials: document.querySelector("#benchTrials"),
+  benchMaxTokens: document.querySelector("#benchMaxTokens"),
+  benchTemperature: document.querySelector("#benchTemperature"),
+  benchTargets: document.querySelector("#benchTargets"),
+  benchAddTarget: document.querySelector("#benchAddTarget"),
+  benchAddCurrent: document.querySelector("#benchAddCurrent"),
+  benchRun: document.querySelector("#benchRun"),
+  benchStop: document.querySelector("#benchStop"),
+  benchRunStatus: document.querySelector("#benchRunStatus"),
+  benchRunStatusLabel: document.querySelector("#benchRunStatus .run-label"),
+  benchResults: document.querySelector("#benchResults"),
   messageList: document.querySelector("#messageList"),
   chatForm: document.querySelector("#chatForm"),
   promptInput: document.querySelector("#promptInput"),
@@ -40,7 +52,6 @@ const elements = {
   runStatusLabel: document.querySelector("#runStatus .run-label"),
   sessionTitle: document.querySelector("#sessionTitle"),
   sessionMeta: document.querySelector("#sessionMeta"),
-  dryRunBenchmark: document.querySelector("#dryRunBenchmark"),
   languageToggle: document.querySelector("#languageToggle"),
   themeToggle: document.querySelector("#themeToggle"),
   brandSubtitle: document.querySelector("#brandSubtitle"),
@@ -136,7 +147,35 @@ const translations = {
     promptReasoning: "Give me a short reasoning test question and answer it.",
     promptSplit: "Split the following requirement into backend, frontend, and testing tasks:",
     benchmarkFailed: "Benchmark failed",
-    benchmarkQueued: "Benchmark dry run queued"
+    benchmarkQueued: "Benchmark dry run queued",
+    benchPromptLabel: "prompt",
+    benchTrials: "trials per target",
+    benchMaxTokens: "max tokens",
+    benchTemperature: "temperature",
+    benchTargets: "targets",
+    benchUseCurrent: "use current",
+    benchAddTarget: "+ add target",
+    benchRun: "run latency",
+    benchIdle: "idle",
+    benchStarting: "starting...",
+    benchRunningProgress: "running · {total} trials queued",
+    benchTrialRunning: "running · {label} ({trial}/{trials})",
+    benchDone: "done · {ms}ms",
+    benchTargetsNeeded: "Add at least one target with API key",
+    benchEmptyTitle: "No runs yet",
+    benchEmptyBody: "Configure targets above and hit run latency. Trials will stream in here as they complete.",
+    benchColTarget: "trial",
+    benchColTtft: "ttft",
+    benchColTotal: "total",
+    benchColTokens: "tokens",
+    benchColTps: "tok/s",
+    benchColStatus: "status",
+    benchTrialN: "trial {n}",
+    benchAvg: "avg ({n})",
+    benchStatus_pending: "queued",
+    benchStatus_running: "live",
+    benchStatus_complete: "ok",
+    benchStatus_error: "error"
   },
   zh: {
     brandSubtitle: "multi-model gateway",
@@ -215,7 +254,35 @@ const translations = {
     promptReasoning: "给我一个用于测试推理能力的简短题目，并回答。",
     promptSplit: "把下面这段需求拆成后端、前端、测试三个任务：",
     benchmarkFailed: "Benchmark 失败",
-    benchmarkQueued: "Benchmark 试运行已排队"
+    benchmarkQueued: "Benchmark 试运行已排队",
+    benchPromptLabel: "提示词",
+    benchTrials: "每目标试次",
+    benchMaxTokens: "最大 tokens",
+    benchTemperature: "温度",
+    benchTargets: "目标",
+    benchUseCurrent: "用当前配置",
+    benchAddTarget: "+ 添加目标",
+    benchRun: "开跑",
+    benchIdle: "空闲",
+    benchStarting: "启动中...",
+    benchRunningProgress: "运行中 · {total} 个试次排队",
+    benchTrialRunning: "运行中 · {label} ({trial}/{trials})",
+    benchDone: "完成 · {ms}ms",
+    benchTargetsNeeded: "至少需要一个填好 API Key 的目标",
+    benchEmptyTitle: "还没有结果",
+    benchEmptyBody: "在上方配置好目标并点击开跑，试次结果会实时回流到这里。",
+    benchColTarget: "试次",
+    benchColTtft: "首 token",
+    benchColTotal: "总耗时",
+    benchColTokens: "输出 tokens",
+    benchColTps: "tok/s",
+    benchColStatus: "状态",
+    benchTrialN: "trial {n}",
+    benchAvg: "均值 ({n})",
+    benchStatus_pending: "排队",
+    benchStatus_running: "运行",
+    benchStatus_complete: "成功",
+    benchStatus_error: "失败"
   }
 };
 
@@ -251,7 +318,14 @@ const state = {
   modelBusy: false,
   modelRefreshTimer: null,
   modelRefreshSignatures: {},
-  apiKeys: {}
+  apiKeys: {},
+  benchmark: {
+    targets: [],
+    trialsByTarget: {},
+    running: false,
+    abortController: null,
+    summary: null
+  }
 };
 
 init();
@@ -318,7 +392,7 @@ async function loadAppData() {
       elements.userBadge.textContent = state.user;
     }
     renderProviders();
-    renderBenchmarks();
+    initBenchmark();
     renderRecords();
     setProvider(state.providers[0]?.id);
     setRunState("ready", t("ready"));
@@ -353,10 +427,22 @@ function bindEvents() {
   elements.saveRecord.addEventListener("click", () => saveCurrentRecord(false));
   elements.clearChat.addEventListener("click", clearChat);
   elements.newSession.addEventListener("click", clearChat);
-  elements.dryRunBenchmark.addEventListener("click", dryRunBenchmark);
   elements.languageToggle.addEventListener("click", toggleLanguage);
   elements.themeToggle.addEventListener("click", toggleTheme);
   elements.logoutButton.addEventListener("click", logout);
+
+  elements.benchAddTarget?.addEventListener("click", () => addBenchTarget());
+  elements.benchAddCurrent?.addEventListener("click", () => addBenchTarget(currentTargetSeed()));
+  elements.benchRun?.addEventListener("click", runLatencyBench);
+  elements.benchStop?.addEventListener("click", stopLatencyBench);
+  elements.benchTargets?.addEventListener("click", (event) => {
+    const removeBtn = event.target.closest("[data-bench-remove]");
+    if (removeBtn) removeBenchTarget(removeBtn.dataset.benchRemove);
+    const reveal = event.target.closest("[data-bench-reveal]");
+    if (reveal) toggleBenchKeyReveal(reveal);
+  });
+  elements.benchTargets?.addEventListener("input", handleBenchTargetEdit);
+  elements.benchTargets?.addEventListener("change", handleBenchTargetEdit);
 
   elements.attachmentTray.addEventListener("click", (event) => {
     const removeBtn = event.target.closest("[data-remove-attachment]");
@@ -466,7 +552,8 @@ function toggleLanguage() {
   localStorage.setItem("apiStudioLanguage", state.language);
   applyLanguage();
   renderProviders();
-  renderBenchmarks();
+  renderBenchTargets();
+  renderBenchResults();
 }
 
 /* ─── Provider rendering ─────────────────────────────────────────────────── */
@@ -629,23 +716,413 @@ function removeAttachment(attachmentId) {
   renderAttachments();
 }
 
-/* ─── Benchmarks ─────────────────────────────────────────────────────────── */
+/* ─── Benchmarks (latency) ───────────────────────────────────────────────── */
 
-function renderBenchmarks() {
-  elements.benchmarkGrid.innerHTML = state.benchmarks
-    .map((benchmark) => `
-      <article class="benchmark-item">
-        <div class="card-kicker">${escapeHtml(benchmark.status || "planned")} · ${String(benchmark.id || "").toUpperCase()}</div>
-        <h3>${escapeHtml(benchmark.name)}</h3>
-        <p>${escapeHtml(benchmark.description)}</p>
-        <div class="tag-row">
-          ${(benchmark.metrics || [])
-            .map((metric) => `<span class="tag">${escapeHtml(metric)}</span>`)
-            .join("")}
+function initBenchmark() {
+  if (!state.benchmark.targets.length && state.providers.length) {
+    addBenchTarget(currentTargetSeed());
+  } else {
+    renderBenchTargets();
+  }
+  renderBenchResults();
+}
+
+function currentTargetSeed() {
+  const provider = state.activeProvider || state.providers[0];
+  if (!provider) return null;
+  const apiKey =
+    state.apiKeys[provider.id] ||
+    (state.activeProvider?.id === provider.id ? elements.apiKeyInput.value.trim() : "");
+  return {
+    providerId: provider.id,
+    model: provider.id === state.activeProvider?.id
+      ? elements.modelInput.value.trim() || provider.defaultModel
+      : provider.defaultModel,
+    apiKey
+  };
+}
+
+function addBenchTarget(seed) {
+  const provider = state.providers.find((p) => p.id === seed?.providerId) || state.providers[0];
+  if (!provider) return;
+  const target = {
+    id: crypto.randomUUID(),
+    providerId: provider.id,
+    model: seed?.model || provider.defaultModel,
+    apiKey: seed?.apiKey || state.apiKeys[provider.id] || "",
+    revealed: false
+  };
+  state.benchmark.targets.push(target);
+  renderBenchTargets();
+}
+
+function removeBenchTarget(id) {
+  state.benchmark.targets = state.benchmark.targets.filter((target) => target.id !== id);
+  delete state.benchmark.trialsByTarget[id];
+  renderBenchTargets();
+  renderBenchResults();
+}
+
+function toggleBenchKeyReveal(button) {
+  const id = button.dataset.benchReveal;
+  const target = state.benchmark.targets.find((item) => item.id === id);
+  if (!target) return;
+  target.revealed = !target.revealed;
+  renderBenchTargets();
+}
+
+function handleBenchTargetEdit(event) {
+  const row = event.target.closest("[data-bench-target]");
+  if (!row) return;
+  const id = row.dataset.benchTarget;
+  const target = state.benchmark.targets.find((item) => item.id === id);
+  if (!target) return;
+  const field = event.target.dataset.benchField;
+  if (!field) return;
+  if (field === "providerId") {
+    target.providerId = event.target.value;
+    const provider = state.providers.find((p) => p.id === target.providerId);
+    if (provider) target.model = provider.defaultModel;
+    target.apiKey = state.apiKeys[target.providerId] || "";
+    renderBenchTargets();
+    return;
+  }
+  if (field === "model") {
+    target.model = event.target.value;
+  }
+  if (field === "apiKey") {
+    target.apiKey = event.target.value;
+    state.apiKeys[target.providerId] = event.target.value;
+  }
+}
+
+function renderBenchTargets() {
+  if (!elements.benchTargets) return;
+  elements.benchTargets.innerHTML = state.benchmark.targets
+    .map((target, index) => {
+      const provider = state.providers.find((p) => p.id === target.providerId);
+      const models = state.modelLists[target.providerId] || normalizeModelOptions(provider?.models || []);
+      const datalistId = `bench-models-${target.id}`;
+      const providerOptions = state.providers
+        .map(
+          (p) =>
+            `<option value="${escapeHtml(p.id)}" ${p.id === target.providerId ? "selected" : ""}>${escapeHtml(p.name)}</option>`
+        )
+        .join("");
+      const modelOptions = models
+        .map((model) => `<option value="${escapeHtml(model.id)}"></option>`)
+        .join("");
+      return `
+        <div class="bench-target" data-bench-target="${escapeHtml(target.id)}">
+          <span class="bench-target-index">${index + 1}</span>
+          <select data-bench-field="providerId" aria-label="Provider">${providerOptions}</select>
+          <input type="text" data-bench-field="model" list="${datalistId}" value="${escapeHtml(target.model || "")}" placeholder="${escapeHtml(provider?.defaultModel || "model")}" />
+          <datalist id="${datalistId}">${modelOptions}</datalist>
+          <div class="input-wrap">
+            <input type="${target.revealed ? "text" : "password"}" data-bench-field="apiKey" value="${escapeHtml(target.apiKey || "")}" placeholder="api key" autocomplete="off" />
+            <button type="button" class="input-affix${target.revealed ? " is-revealed" : ""}" data-bench-reveal="${escapeHtml(target.id)}" title="Reveal">
+              <svg class="affix-icon eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="affix-icon eye-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6A2 2 0 0 0 13.4 13.4"/><path d="M9.9 5.2A11 11 0 0 1 12 5C19 5 22 12 22 12C21.4 13.4 20.5 14.7 19.4 15.8M6.6 6.6C3.9 8.4 2 12 2 12C2 12 5 19 12 19A11 11 0 0 0 17.4 17.4"/></svg>
+            </button>
+          </div>
+          <button type="button" class="bench-target-remove" data-bench-remove="${escapeHtml(target.id)}" title="Remove">×</button>
         </div>
-      </article>
-    `)
+      `;
+    })
     .join("");
+}
+
+async function runLatencyBench() {
+  if (state.benchmark.running) return;
+  const targets = state.benchmark.targets
+    .filter((target) => target.providerId && target.model && (target.apiKey || target.providerId === "openrouter"))
+    .map((target) => ({
+      id: target.id,
+      providerId: target.providerId,
+      model: target.model.trim(),
+      apiKey: target.apiKey.trim()
+    }));
+
+  if (!targets.length) {
+    setBenchStatus("error", t("benchTargetsNeeded"));
+    return;
+  }
+
+  const trials = clamp(parseInt(elements.benchTrials.value, 10) || 3, 1, 10);
+  const maxTokens = clamp(parseInt(elements.benchMaxTokens.value, 10) || 256, 32, 4096);
+  const temperature = clamp(parseFloat(elements.benchTemperature.value) || 0.3, 0, 2);
+  const prompt = elements.benchPrompt.value.trim() || "Reply with a single haiku about an octopus exploring the deep sea.";
+
+  state.benchmark.trialsByTarget = {};
+  state.benchmark.targets.forEach((target) => {
+    state.benchmark.trialsByTarget[target.id] = Array.from({ length: trials }, (_, idx) => ({
+      trial: idx + 1,
+      status: "pending"
+    }));
+  });
+  state.benchmark.summary = null;
+  state.benchmark.running = true;
+  state.benchmark.abortController = new AbortController();
+  elements.benchRun.disabled = true;
+  elements.benchStop.disabled = false;
+  setBenchStatus("running", t("benchStarting"));
+  renderBenchResults();
+
+  try {
+    const response = await fetch("/api/benchmarks/latency", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targets,
+        prompt,
+        trials,
+        parameters: { temperature, maxTokens, topP: 0.9, thinkingEnabled: false }
+      }),
+      signal: state.benchmark.abortController.signal
+    });
+    if (!response.ok || !response.body) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(formatErrorPayload(error) || "Request failed");
+    }
+    await readEventStream(response.body, handleBenchEvent);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      setBenchStatus("error", `${t("error")}: ${error.message}`);
+    } else {
+      setBenchStatus("idle", t("stopped"));
+    }
+  } finally {
+    state.benchmark.running = false;
+    state.benchmark.abortController = null;
+    elements.benchRun.disabled = false;
+    elements.benchStop.disabled = true;
+    renderBenchResults();
+  }
+}
+
+function stopLatencyBench() {
+  if (state.benchmark.abortController) state.benchmark.abortController.abort();
+}
+
+function handleBenchEvent(eventName, data) {
+  if (eventName === "started") {
+    setBenchStatus("running", t("benchRunningProgress").replace("{total}", data.totalRuns));
+    return;
+  }
+  if (eventName === "trial-start") {
+    const trials = state.benchmark.trialsByTarget[data.targetId];
+    if (!trials) return;
+    const trial = trials.find((item) => item.trial === data.trial);
+    if (trial) trial.status = "running";
+    setBenchStatus(
+      "running",
+      t("benchTrialRunning").replace("{label}", data.label).replace("{trial}", data.trial).replace("{trials}", data.trials)
+    );
+    renderBenchResults();
+    return;
+  }
+  if (eventName === "trial-complete") {
+    const trials = state.benchmark.trialsByTarget[data.targetId];
+    const trial = trials?.find((item) => item.trial === data.trial);
+    if (trial) {
+      trial.status = "complete";
+      trial.metrics = data.metrics;
+    }
+    renderBenchResults();
+    return;
+  }
+  if (eventName === "trial-error") {
+    const trials = state.benchmark.trialsByTarget[data.targetId];
+    const trial = trials?.find((item) => item.trial === data.trial);
+    if (trial) {
+      trial.status = "error";
+      trial.error = data.error;
+    }
+    renderBenchResults();
+    return;
+  }
+  if (eventName === "done") {
+    state.benchmark.summary = data;
+    setBenchStatus("idle", t("benchDone").replace("{ms}", data.totalMs));
+    renderBenchResults();
+  }
+}
+
+function setBenchStatus(stateName, label) {
+  if (!elements.benchRunStatus) return;
+  const map = { idle: "ready", running: "streaming", error: "error", complete: "ready" };
+  elements.benchRunStatus.dataset.state = map[stateName] || "ready";
+  elements.benchRunStatusLabel.textContent = label;
+}
+
+function renderBenchResults() {
+  if (!elements.benchResults) return;
+  const targets = state.benchmark.targets;
+  const trialsByTarget = state.benchmark.trialsByTarget;
+  const hasAnyTrial = Object.values(trialsByTarget).some((arr) => arr && arr.length);
+
+  if (!hasAnyTrial) {
+    elements.benchResults.innerHTML = `
+      <div class="bench-empty">
+        <div class="bench-empty-card">
+          <span class="bench-empty-mark">◇</span>
+          <strong>${escapeHtml(t("benchEmptyTitle"))}</strong>
+          <span>${escapeHtml(t("benchEmptyBody"))}</span>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const summaryHtml = renderBenchSummary();
+  const tableHtml = renderBenchTable(targets, trialsByTarget);
+  elements.benchResults.innerHTML = `${summaryHtml}<table class="bench-table">${tableHtml}</table>`;
+}
+
+function renderBenchSummary() {
+  const trialsByTarget = state.benchmark.trialsByTarget;
+  let total = 0;
+  let done = 0;
+  let errors = 0;
+  const ttfts = [];
+  const totals = [];
+  Object.values(trialsByTarget).forEach((arr) => {
+    (arr || []).forEach((trial) => {
+      total += 1;
+      if (trial.status === "complete") {
+        done += 1;
+        if (trial.metrics?.first_token_ms != null) ttfts.push(trial.metrics.first_token_ms);
+        if (trial.metrics?.total_ms != null) totals.push(trial.metrics.total_ms);
+      }
+      if (trial.status === "error") errors += 1;
+    });
+  });
+  const avgTtft = ttfts.length ? Math.round(avg(ttfts)) : null;
+  const avgTotal = totals.length ? Math.round(avg(totals)) : null;
+  return `
+    <div class="bench-summary">
+      <span class="pair"><span>runs</span><b>${done}/${total}</b></span>
+      <span class="pair"><span>errors</span><b class="${errors ? "" : "muted"}">${errors}</b></span>
+      <span class="pair"><span>avg ttft</span><b class="accent">${avgTtft != null ? `${avgTtft} ms` : "—"}</b></span>
+      <span class="pair"><span>avg total</span><b class="accent">${avgTotal != null ? `${avgTotal} ms` : "—"}</b></span>
+    </div>
+  `;
+}
+
+function renderBenchTable(targets, trialsByTarget) {
+  const head = `
+    <thead><tr>
+      <th>${escapeHtml(t("benchColTarget"))}</th>
+      <th>${escapeHtml(t("benchColTtft"))}</th>
+      <th>${escapeHtml(t("benchColTotal"))}</th>
+      <th>${escapeHtml(t("benchColTokens"))}</th>
+      <th>${escapeHtml(t("benchColTps"))}</th>
+      <th>${escapeHtml(t("benchColStatus"))}</th>
+    </tr></thead>
+  `;
+  const body = targets
+    .map((target) => {
+      const provider = state.providers.find((p) => p.id === target.providerId);
+      const trials = trialsByTarget[target.id] || [];
+      const label = `${provider?.name || target.providerId} · ${target.model || "default"}`;
+      const initials = providerInitials(provider || { id: target.providerId, name: target.providerId });
+      const headRow = `
+        <tr class="target-head">
+          <td colspan="6"><span class="bench-target-mark">${escapeHtml(initials)}</span>${escapeHtml(label)}</td>
+        </tr>
+      `;
+      const trialRows = trials
+        .map((trial) => {
+          const status = trial.status || "pending";
+          if (status === "error") {
+            return `
+              <tr class="trial-row">
+                <td>${escapeHtml(t("benchTrialN").replace("{n}", trial.trial))}</td>
+                <td colspan="4" class="bench-error-cell">${escapeHtml(trial.error || "error")}</td>
+                <td><span class="bench-status" data-state="error">err</span></td>
+              </tr>
+            `;
+          }
+          const metrics = trial.metrics || {};
+          return `
+            <tr class="trial-row">
+              <td>${escapeHtml(t("benchTrialN").replace("{n}", trial.trial))}</td>
+              <td class="num">${formatMs(metrics.first_token_ms)}</td>
+              <td class="num">${formatMs(metrics.total_ms)}</td>
+              <td class="num">${formatTokens(metrics)}</td>
+              <td class="num">${formatTps(metrics.tokens_per_second)}</td>
+              <td><span class="bench-status" data-state="${status}">${escapeHtml(t(`benchStatus_${status}`))}</span></td>
+            </tr>
+          `;
+        })
+        .join("");
+      const aggregate = computeAggregate(trials);
+      const aggRow = aggregate.count
+        ? `
+          <tr class="aggregate-row">
+            <td>${escapeHtml(t("benchAvg")).replace("{n}", aggregate.count)}</td>
+            <td class="num">${formatMs(aggregate.avgTtft)}<span class="muted"> · ${formatMs(aggregate.minTtft)}–${formatMs(aggregate.maxTtft)}</span></td>
+            <td class="num">${formatMs(aggregate.avgTotal)}<span class="muted"> · ${formatMs(aggregate.minTotal)}–${formatMs(aggregate.maxTotal)}</span></td>
+            <td class="num">${formatTokens({ output_tokens: aggregate.avgTokens })}</td>
+            <td class="num">${formatTps(aggregate.avgTps)}</td>
+            <td></td>
+          </tr>
+        `
+        : "";
+      return headRow + trialRows + aggRow;
+    })
+    .join("");
+  return head + `<tbody>${body}</tbody>`;
+}
+
+function computeAggregate(trials) {
+  const completed = trials.filter((trial) => trial.status === "complete" && trial.metrics);
+  if (!completed.length) return { count: 0 };
+  const ttfts = completed.map((t) => t.metrics.first_token_ms).filter((v) => v != null);
+  const totals = completed.map((t) => t.metrics.total_ms).filter((v) => v != null);
+  const tokens = completed
+    .map((t) => t.metrics.output_tokens ?? t.metrics.output_tokens_estimated)
+    .filter((v) => v != null);
+  const tps = completed.map((t) => t.metrics.tokens_per_second).filter((v) => v != null);
+  return {
+    count: completed.length,
+    avgTtft: ttfts.length ? Math.round(avg(ttfts)) : null,
+    minTtft: ttfts.length ? Math.min(...ttfts) : null,
+    maxTtft: ttfts.length ? Math.max(...ttfts) : null,
+    avgTotal: totals.length ? Math.round(avg(totals)) : null,
+    minTotal: totals.length ? Math.min(...totals) : null,
+    maxTotal: totals.length ? Math.max(...totals) : null,
+    avgTokens: tokens.length ? Math.round(avg(tokens)) : null,
+    avgTps: tps.length ? Math.round(avg(tps) * 10) / 10 : null
+  };
+}
+
+function formatMs(value) {
+  if (value == null) return `<span class="muted">—</span>`;
+  return `${value} <span class="muted">ms</span>`;
+}
+
+function formatTokens(metrics) {
+  const tokens = metrics.output_tokens ?? metrics.output_tokens_estimated;
+  if (tokens == null) return `<span class="muted">—</span>`;
+  if (metrics.output_tokens == null && metrics.output_tokens_estimated != null) {
+    return `~${tokens}`;
+  }
+  return String(tokens);
+}
+
+function formatTps(value) {
+  if (value == null) return `<span class="muted">—</span>`;
+  return `${value}<span class="muted"> tok/s</span>`;
+}
+
+function avg(values) {
+  return values.reduce((acc, v) => acc + v, 0) / values.length;
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 /* ─── Provider state ─────────────────────────────────────────────────────── */
@@ -1382,17 +1859,6 @@ function clearChat() {
 
 function stopStream() {
   if (state.abortController) state.abortController.abort();
-}
-
-async function dryRunBenchmark() {
-  try {
-    const response = await fetch("/api/benchmarks/run", { method: "POST" });
-    const data = await response.json();
-    setRunState("ready", data.message || t("benchmarkQueued"));
-    switchView("benchmarks");
-  } catch (error) {
-    setRunState("error", `${t("benchmarkFailed")}: ${error.message}`);
-  }
 }
 
 function setBusy(value) {

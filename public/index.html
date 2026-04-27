@@ -156,11 +156,63 @@
           <header class="workspace-topbar compact">
             <div class="topbar-left">
               <span class="eyebrow" data-i18n="benchmarkEyebrow">evaluation</span>
-              <h1 data-i18n="benchmarkTitle">Benchmark Framework</h1>
+              <h1 data-i18n="benchmarkTitle">Benchmarks</h1>
             </div>
-            <button id="dryRunBenchmark" class="ghost-button" type="button" data-i18n="dryRun">dry run</button>
+            <div class="bench-tabs" id="benchTabs">
+              <button class="bench-tab is-active" type="button" data-bench-tab="latency">latency</button>
+              <button class="bench-tab" type="button" data-bench-tab="quality" disabled>quality · soon</button>
+              <button class="bench-tab" type="button" data-bench-tab="reasoning" disabled>reasoning · soon</button>
+              <button class="bench-tab" type="button" data-bench-tab="custom" disabled>custom · soon</button>
+            </div>
           </header>
-          <div id="benchmarkGrid" class="benchmark-grid"></div>
+
+          <div class="bench-body">
+            <div class="bench-panel" data-bench-panel="latency">
+              <section class="bench-config">
+                <div class="bench-row">
+                  <label class="bench-label" for="benchPrompt" data-i18n="benchPromptLabel">prompt</label>
+                  <textarea id="benchPrompt" rows="2" placeholder="Reply with a single haiku about an octopus exploring the deep sea."></textarea>
+                </div>
+                <div class="bench-row bench-row-inline">
+                  <div class="field-group bench-narrow">
+                    <label class="bench-label" for="benchTrials" data-i18n="benchTrials">trials per target</label>
+                    <input id="benchTrials" type="number" min="1" max="10" value="3" />
+                  </div>
+                  <div class="field-group bench-narrow">
+                    <label class="bench-label" for="benchMaxTokens" data-i18n="benchMaxTokens">max tokens</label>
+                    <input id="benchMaxTokens" type="number" min="32" max="4096" step="32" value="256" />
+                  </div>
+                  <div class="field-group bench-narrow">
+                    <label class="bench-label" for="benchTemperature" data-i18n="benchTemperature">temperature</label>
+                    <input id="benchTemperature" type="number" min="0" max="2" step="0.1" value="0.3" />
+                  </div>
+                </div>
+                <div class="bench-row">
+                  <div class="bench-targets-head">
+                    <label class="bench-label" data-i18n="benchTargets">targets</label>
+                    <div class="bench-targets-actions">
+                      <button id="benchAddCurrent" class="ghost-button" type="button" data-i18n="benchUseCurrent">use current</button>
+                      <button id="benchAddTarget" class="ghost-button" type="button" data-i18n="benchAddTarget">+ add target</button>
+                    </div>
+                  </div>
+                  <div id="benchTargets" class="bench-targets"></div>
+                </div>
+                <div class="bench-actions">
+                  <button id="benchRun" class="primary-button" type="button">
+                    <span data-i18n="benchRun">run latency</span>
+                    <span class="primary-shortcut">▶</span>
+                  </button>
+                  <button id="benchStop" class="ghost-button danger" type="button" disabled data-i18n="stop">stop</button>
+                  <span id="benchRunStatus" class="run-status" data-state="idle">
+                    <span class="run-dot" aria-hidden="true"></span>
+                    <span class="run-label" data-i18n="benchIdle">idle</span>
+                  </span>
+                </div>
+              </section>
+
+              <section class="bench-results" id="benchResults"></section>
+            </div>
+          </div>
         </section>
 
         <section id="providersView" class="view is-hidden">

@@ -24,6 +24,7 @@ ALLOWED_USER = "yiiwang"
 SESSION_COOKIE = "studio_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
 ANTHROPIC_DEFAULT_MAX_TOKENS = 64000
+DEFAULT_LATENCY_PROMPT = "Reply with a single haiku about an octopus exploring the deep sea."
 DATA_LOCK = threading.Lock()
 
 
@@ -232,7 +233,7 @@ BENCHMARKS = [
     {
         "id": "latency",
         "name": "Latency",
-        "status": "planned",
+        "status": "ready",
         "metrics": ["first_token_ms", "total_ms", "tokens_per_second"],
         "description": "Measures response speed and streaming cadence for identical prompts.",
     },
@@ -317,14 +318,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.handle_record_save()
             return
         if path == "/api/benchmarks/run":
-            self.send_json(
-                202,
-                {
-                    "status": "planned",
-                    "message": "Benchmark runner interface is reserved; execution is not implemented yet.",
-                    "benchmarks": BENCHMARKS,
-                },
-            )
+            self.handle_benchmark_dispatch()
+            return
+        if path == "/api/benchmarks/latency":
+            self.handle_benchmark_latency()
             return
         if path == "/api/chat":
             self.handle_chat()
@@ -539,6 +536,133 @@ class Handler(SimpleHTTPRequestHandler):
             raise ValueError("Request body is too large")
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8") or "{}")
+
+    def handle_benchmark_dispatch(self):
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+        kind = str(payload.get("type") or "").strip().lower()
+        if kind == "latency":
+            self.handle_benchmark_latency(payload)
+            return
+        self.send_json(
+            202,
+            {
+                "status": "planned",
+                "message": f"Benchmark type '{kind or 'unknown'}' is not implemented yet.",
+                "benchmarks": BENCHMARKS,
+            },
+        )
+
+    def handle_benchmark_latency(self, payload=None):
+        try:
+            if payload is None:
+                payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+
+        targets = payload.get("targets")
+        if not isinstance(targets, list) or not targets:
+            self.send_json(400, {"error": "At least one target is required"})
+            return
+        targets = targets[:24]
+
+        prompt = str(payload.get("prompt") or "").strip()
+        if not prompt:
+            prompt = DEFAULT_LATENCY_PROMPT
+
+        try:
+            trials = max(1, min(int(payload.get("trials") or 3), 10))
+        except (TypeError, ValueError):
+            trials = 3
+
+        parameters = normalize_bench_parameters(payload.get("parameters"))
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        overall_started = time.time()
+        try:
+            self.write_sse(
+                "started",
+                {
+                    "type": "latency",
+                    "targets": len(targets),
+                    "trials": trials,
+                    "totalRuns": len(targets) * trials,
+                    "prompt": prompt,
+                    "parameters": parameters,
+                    "startedAt": iso_now(),
+                },
+            )
+
+            for target_idx, target in enumerate(targets):
+                if not isinstance(target, dict):
+                    continue
+                target_id = str(target.get("id") or f"target-{target_idx}")
+                provider = get_provider(target.get("providerId"))
+                target_label = (
+                    f"{provider['name'] if provider else target.get('providerId') or '?'}"
+                    f" · {target.get('model') or 'default'}"
+                )
+
+                for trial_idx in range(trials):
+                    trial_number = trial_idx + 1
+                    trial_id = f"{target_id}#{trial_number}"
+                    self.write_sse(
+                        "trial-start",
+                        {
+                            "id": trial_id,
+                            "targetId": target_id,
+                            "trial": trial_number,
+                            "trials": trials,
+                            "label": target_label,
+                            "providerId": target.get("providerId"),
+                            "model": target.get("model"),
+                        },
+                    )
+                    try:
+                        metrics = run_latency_trial(target, prompt, parameters)
+                        self.write_sse(
+                            "trial-complete",
+                            {
+                                "id": trial_id,
+                                "targetId": target_id,
+                                "trial": trial_number,
+                                "metrics": metrics,
+                            },
+                        )
+                    except HTTPError as error:
+                        body = error.read().decode("utf-8", "replace") if hasattr(error, "read") else ""
+                        message = f"HTTP {error.code}: {body[:300]}".strip()
+                        self.write_sse(
+                            "trial-error",
+                            {"id": trial_id, "targetId": target_id, "trial": trial_number, "error": message},
+                        )
+                    except (URLError, TimeoutError, OSError, ValueError, RuntimeError, ConnectionError) as error:
+                        self.write_sse(
+                            "trial-error",
+                            {
+                                "id": trial_id,
+                                "targetId": target_id,
+                                "trial": trial_number,
+                                "error": str(error)[:400],
+                            },
+                        )
+                    time.sleep(0.15)
+
+            self.write_sse(
+                "done",
+                {"totalMs": int((time.time() - overall_started) * 1000), "finishedAt": iso_now()},
+            )
+        except ConnectionError:
+            return
 
     def handle_chat(self):
         try:
@@ -1319,6 +1443,218 @@ def safe_parse_json(value):
 
 def iso_now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def normalize_bench_parameters(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+    max_tokens = optional_token_limit(raw.get("maxTokens"), 1)
+    if max_tokens is None:
+        max_tokens = 256
+    return {
+        "temperature": clamp_number(raw.get("temperature"), 0, 2, 0.3),
+        "topP": clamp_number(raw.get("topP"), 0, 1, 0.9),
+        "maxTokens": max_tokens,
+        "thinkingEnabled": bool(raw.get("thinkingEnabled")),
+        "thinkingBudget": optional_token_limit(raw.get("thinkingBudget"), 0),
+        "reasoningEffort": raw.get("reasoningEffort")
+        if raw.get("reasoningEffort") in {"low", "medium", "high", "max"}
+        else "low",
+    }
+
+
+def run_latency_trial(target, prompt, parameters):
+    provider = get_provider(target.get("providerId"))
+    if not provider:
+        raise ValueError("Unknown provider")
+    api_key = str(target.get("apiKey") or "").strip()
+    if not api_key and provider["id"] != "openrouter":
+        raise ValueError("API key is required")
+    model = str(target.get("model") or provider.get("defaultModel") or "").strip()
+    if not model:
+        raise ValueError("Model is required")
+    base_url = str(target.get("baseUrl") or provider["baseUrl"]).strip()
+
+    messages = normalize_messages(
+        [{"role": "user", "content": prompt}],
+        target.get("systemPrompt"),
+    )
+
+    payload = {
+        "providerId": provider["id"],
+        "apiKey": api_key,
+        "model": model,
+        "baseUrl": base_url,
+        "messages": messages,
+        "parameters": parameters,
+    }
+
+    upstream = build_upstream_request(provider, payload)
+    request = Request(
+        upstream["url"],
+        data=json.dumps(upstream["body"]).encode("utf-8"),
+        headers=upstream["headers"],
+        method="POST",
+    )
+
+    started = time.monotonic()
+    with urlopen(request, timeout=180) as response:
+        captured = measure_stream(provider, response, started)
+    total_ms = (time.monotonic() - started) * 1000
+
+    if captured.get("errored"):
+        raise RuntimeError(captured.get("error_message") or "Upstream stream error")
+
+    output_tokens = captured.get("output_tokens")
+    output_chars = captured.get("output_chars") or 0
+    output_tokens_estimated = None
+    if output_tokens is None and output_chars:
+        output_tokens_estimated = max(1, round(output_chars / 4))
+
+    first_token_ms = captured.get("first_token_ms")
+    tokens_per_second = None
+    effective_tokens = output_tokens if output_tokens is not None else output_tokens_estimated
+    if first_token_ms is not None and effective_tokens:
+        window_sec = max(0.001, (total_ms - first_token_ms) / 1000)
+        tokens_per_second = round(effective_tokens / window_sec, 2)
+
+    return {
+        "first_event_ms": int_or_none(captured.get("first_event_ms")),
+        "first_token_ms": int_or_none(first_token_ms),
+        "total_ms": int(total_ms),
+        "output_chars": output_chars,
+        "output_tokens": output_tokens,
+        "output_tokens_estimated": output_tokens_estimated,
+        "tokens_per_second": tokens_per_second,
+    }
+
+
+def int_or_none(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def measure_stream(provider, response, started):
+    if provider["adapter"] == "anthropic":
+        return measure_anthropic_stream(response, started)
+    if provider["adapter"] == "gemini":
+        return measure_gemini_stream(response, started)
+    return measure_openai_compatible_stream(response, started)
+
+
+def _new_metrics():
+    return {
+        "first_event_ms": None,
+        "first_token_ms": None,
+        "output_chars": 0,
+        "output_tokens": None,
+        "errored": False,
+        "error_message": "",
+    }
+
+
+def _elapsed_ms(started):
+    return (time.monotonic() - started) * 1000
+
+
+def measure_openai_compatible_stream(response, started):
+    metrics = _new_metrics()
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        if isinstance(data.get("error"), dict):
+            metrics["errored"] = True
+            metrics["error_message"] = data["error"].get("message") or "Upstream error"
+            break
+        choices = data.get("choices") or []
+        choice = choices[0] if choices else {}
+        delta = choice.get("delta") or {}
+        message = choice.get("message") or {}
+        reasoning = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or message.get("reasoning_content")
+        )
+        content = delta.get("content") if "content" in delta else message.get("content")
+        if metrics["first_event_ms"] is None and (
+            (isinstance(content, str) and content) or (isinstance(reasoning, str) and reasoning)
+        ):
+            metrics["first_event_ms"] = _elapsed_ms(started)
+        if isinstance(content, str) and content:
+            if metrics["first_token_ms"] is None:
+                metrics["first_token_ms"] = _elapsed_ms(started)
+            metrics["output_chars"] += len(content)
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            tokens = usage.get("completion_tokens")
+            if tokens is None:
+                tokens = usage.get("output_tokens")
+            if tokens is not None:
+                metrics["output_tokens"] = tokens
+    return metrics
+
+
+def measure_anthropic_stream(response, started):
+    metrics = _new_metrics()
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        kind = data.get("type")
+        if kind == "error":
+            metrics["errored"] = True
+            metrics["error_message"] = (data.get("error") or {}).get("message") or "Anthropic error"
+            break
+        if kind == "content_block_delta":
+            delta = data.get("delta") or {}
+            text = delta.get("text") if isinstance(delta.get("text"), str) else ""
+            thinking = delta.get("thinking") if isinstance(delta.get("thinking"), str) else ""
+            if metrics["first_event_ms"] is None and (text or thinking):
+                metrics["first_event_ms"] = _elapsed_ms(started)
+            if text:
+                if metrics["first_token_ms"] is None:
+                    metrics["first_token_ms"] = _elapsed_ms(started)
+                metrics["output_chars"] += len(text)
+        elif kind == "message_delta":
+            usage = data.get("usage")
+            if isinstance(usage, dict) and usage.get("output_tokens") is not None:
+                metrics["output_tokens"] = usage["output_tokens"]
+    return metrics
+
+
+def measure_gemini_stream(response, started):
+    metrics = _new_metrics()
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        if isinstance(data.get("error"), dict):
+            metrics["errored"] = True
+            metrics["error_message"] = data["error"].get("message") or "Gemini error"
+            break
+        for candidate in data.get("candidates") or []:
+            content = candidate.get("content") or {}
+            for part in content.get("parts") or []:
+                text = part.get("text")
+                if not isinstance(text, str) or not text:
+                    continue
+                if metrics["first_event_ms"] is None:
+                    metrics["first_event_ms"] = _elapsed_ms(started)
+                if not part.get("thought"):
+                    if metrics["first_token_ms"] is None:
+                        metrics["first_token_ms"] = _elapsed_ms(started)
+                    metrics["output_chars"] += len(text)
+        usage = data.get("usageMetadata")
+        if isinstance(usage, dict):
+            tokens = usage.get("candidatesTokenCount")
+            if tokens is not None:
+                metrics["output_tokens"] = tokens
+    return metrics
 
 
 def main():
