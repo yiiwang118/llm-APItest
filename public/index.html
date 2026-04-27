@@ -184,12 +184,24 @@
 
           <div class="field-row">
             <div class="field-group">
-              <label for="maxTokensInput" data-i18n="maxTokens">Max tokens</label>
-              <input id="maxTokensInput" type="number" min="128" max="32768" step="128" value="2048" />
+              <div class="field-label-row">
+                <label for="maxTokensInput" data-i18n="maxTokens">Max tokens</label>
+                <label class="inline-check">
+                  <input id="maxTokensUnlimited" type="checkbox" />
+                  <span data-i18n="unlimited">Unlimited</span>
+                </label>
+              </div>
+              <input id="maxTokensInput" type="number" min="1" step="128" value="2048" />
             </div>
             <div class="field-group">
-              <label for="thinkingBudgetInput" data-i18n="thinkBudget">Think budget</label>
-              <input id="thinkingBudgetInput" type="number" min="128" max="32768" step="128" value="2048" />
+              <div class="field-label-row">
+                <label for="thinkingBudgetInput" data-i18n="thinkBudget">Think budget</label>
+                <label class="inline-check">
+                  <input id="thinkingBudgetUnlimited" type="checkbox" />
+                  <span data-i18n="unlimited">Unlimited</span>
+                </label>
+              </div>
+              <input id="thinkingBudgetInput" type="number" min="0" step="128" value="2048" />
             </div>
           </div>
 

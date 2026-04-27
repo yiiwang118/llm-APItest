@@ -7,6 +7,7 @@
 - 支持 OpenAI、Anthropic、Google Gemini、智谱 GLM、Qwen / DashScope、DeepSeek、小米 MiMo、MiniMax、SiliconFlow、OpenRouter。
 - 后端统一代理不同厂商的流式接口，前端按 `token`、`reasoning`、`usage` 标准事件渲染。
 - 模型支持下拉建议和手动输入；API Key 填入后会自动尝试刷新厂商实时模型列表。
+- 最大输出 tokens 和思考预算支持固定数值或无限制；无限制时后端不向上游发送对应限制字段，保留厂商默认策略。
 - 模型列表支持按厂商动态刷新；如果厂商接口失败，页面会展示上游状态码和响应内容，并保留内置模型列表可选。
 - 多模态输入支持本地图片附件；文本、Markdown、CSV、JSON 文件会作为文本上下文追加到 prompt。
 - API Key 不写入本地文件，只随当前请求发送到后端代理。

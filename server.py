@@ -23,6 +23,7 @@ MAX_BODY_BYTES = 12 * 1024 * 1024
 ALLOWED_USER = "yiiwang"
 SESSION_COOKIE = "studio_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 14
+ANTHROPIC_DEFAULT_MAX_TOKENS = 64000
 DATA_LOCK = threading.Lock()
 
 
@@ -969,15 +970,17 @@ def build_openai_compatible_request(provider, payload):
         "stream_options": {"include_usage": True},
         "temperature": params["temperature"],
         "top_p": params["topP"],
-        "max_tokens": params["maxTokens"],
     }
+    if params["maxTokens"] is not None:
+        body["max_tokens"] = params["maxTokens"]
 
     if params["thinkingEnabled"]:
         if provider.get("thinkingMode") == "thinking-object":
             body["thinking"] = {"type": "enabled", "reasoning_effort": params["reasoningEffort"]}
         if provider.get("thinkingMode") == "enable-thinking":
             body["enable_thinking"] = True
-            body["thinking_budget"] = params["thinkingBudget"]
+            if params["thinkingBudget"] is not None:
+                body["thinking_budget"] = params["thinkingBudget"]
 
     headers = {
         "Content-Type": "application/json",
@@ -1025,17 +1028,20 @@ def build_anthropic_request(provider, payload):
                 "content": content,
             }
         )
+    max_tokens = params["maxTokens"] or ANTHROPIC_DEFAULT_MAX_TOKENS
     body = {
         "model": payload["model"],
-        "max_tokens": params["maxTokens"],
+        "max_tokens": max_tokens,
         "messages": messages,
         "stream": True,
     }
     if system_messages:
         body["system"] = "\n\n".join(system_messages)
     if params["thinkingEnabled"]:
-        budget_tokens = min(params["thinkingBudget"], max(128, params["maxTokens"] - 1))
-        body["max_tokens"] = max(params["maxTokens"], budget_tokens + 1)
+        budget_tokens = params["thinkingBudget"] or max(1024, max_tokens - 1)
+        budget_tokens = max(1024, budget_tokens)
+        if budget_tokens >= body["max_tokens"]:
+            body["max_tokens"] = budget_tokens + 1
         body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
     else:
         body["temperature"] = params["temperature"]
@@ -1076,21 +1082,20 @@ def build_gemini_request(provider, payload):
                 "parts": parts or [{"text": message["content"]}],
             }
         )
-    body = {
-        "contents": contents,
-        "generationConfig": {
-            "temperature": params["temperature"],
-            "topP": params["topP"],
-            "maxOutputTokens": params["maxTokens"],
-        },
+    generation_config = {
+        "temperature": params["temperature"],
+        "topP": params["topP"],
     }
+    if params["maxTokens"] is not None:
+        generation_config["maxOutputTokens"] = params["maxTokens"]
+    body = {"contents": contents, "generationConfig": generation_config}
     if system_prompt:
         body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
     if params["thinkingEnabled"]:
-        body["generationConfig"]["thinkingConfig"] = {
-            "includeThoughts": True,
-            "thinkingBudget": params["thinkingBudget"],
-        }
+        thinking_config = {"includeThoughts": True}
+        if params["thinkingBudget"] is not None:
+            thinking_config["thinkingBudget"] = params["thinkingBudget"]
+        body["generationConfig"]["thinkingConfig"] = thinking_config
 
     model = quote(payload["model"], safe="")
     key = quote(payload["apiKey"], safe="")
@@ -1102,16 +1107,32 @@ def build_gemini_request(provider, payload):
 
 
 def normalize_parameters(raw):
+    if not isinstance(raw, dict):
+        raw = {}
     return {
         "temperature": clamp_number(raw.get("temperature"), 0, 2, 0.7),
         "topP": clamp_number(raw.get("topP"), 0, 1, 0.9),
-        "maxTokens": round(clamp_number(raw.get("maxTokens"), 128, 32768, 2048)),
+        "maxTokens": optional_token_limit(raw.get("maxTokens"), 1),
         "thinkingEnabled": bool(raw.get("thinkingEnabled")),
-        "thinkingBudget": round(clamp_number(raw.get("thinkingBudget"), 128, 32768, 2048)),
+        "thinkingBudget": optional_token_limit(raw.get("thinkingBudget"), 0),
         "reasoningEffort": raw.get("reasoningEffort")
         if raw.get("reasoningEffort") in {"low", "medium", "high", "max"}
         else "high",
     }
+
+
+def optional_token_limit(value, minimum):
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "unlimited"}:
+        return None
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if number < 0:
+        return None
+    return max(minimum, number)
 
 
 def clamp_number(value, minimum, maximum, fallback):

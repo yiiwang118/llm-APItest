@@ -16,7 +16,9 @@ const elements = {
   topPInput: document.querySelector("#topPInput"),
   topPValue: document.querySelector("#topPValue"),
   maxTokensInput: document.querySelector("#maxTokensInput"),
+  maxTokensUnlimited: document.querySelector("#maxTokensUnlimited"),
   thinkingBudgetInput: document.querySelector("#thinkingBudgetInput"),
+  thinkingBudgetUnlimited: document.querySelector("#thinkingBudgetUnlimited"),
   thinkingToggle: document.querySelector("#thinkingToggle"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
   docsLink: document.querySelector("#docsLink"),
@@ -91,6 +93,7 @@ const translations = {
     temperature: "Temperature",
     maxTokens: "Max tokens",
     thinkBudget: "Think budget",
+    unlimited: "Unlimited",
     showReasoning: "Show reasoning stream",
     systemPrompt: "System instructions",
     providerDocs: "Provider docs",
@@ -165,6 +168,7 @@ const translations = {
     temperature: "温度",
     maxTokens: "最大 tokens",
     thinkBudget: "思考预算",
+    unlimited: "无限制",
     showReasoning: "展示思考流",
     systemPrompt: "System instructions",
     providerDocs: "厂商文档",
@@ -299,6 +303,8 @@ function bindEvents() {
   elements.baseUrlInput.addEventListener("change", scheduleModelRefresh);
   elements.temperatureInput.addEventListener("input", syncSliderLabels);
   elements.topPInput.addEventListener("input", syncSliderLabels);
+  elements.maxTokensUnlimited.addEventListener("change", syncUnlimitedControls);
+  elements.thinkingBudgetUnlimited.addEventListener("change", syncUnlimitedControls);
   elements.attachmentInput.addEventListener("change", handleAttachmentFiles);
   elements.chatForm.addEventListener("submit", submitChat);
   elements.stopStream.addEventListener("click", stopStream);
@@ -395,6 +401,7 @@ function applyLanguage() {
     const key = `${button.dataset.promptKey}Label`;
     button.textContent = t(key);
   });
+  syncUnlimitedControls();
 
   if (!state.busy) {
     setStatus(t("ready"));
@@ -731,8 +738,8 @@ function buildRecordPayload() {
     parameters: {
       temperature: Number(elements.temperatureInput.value),
       topP: Number(elements.topPInput.value),
-      maxTokens: Number(elements.maxTokensInput.value),
-      thinkingBudget: Number(elements.thinkingBudgetInput.value),
+      maxTokens: optionalNumberValue(elements.maxTokensInput, elements.maxTokensUnlimited),
+      thinkingBudget: optionalNumberValue(elements.thinkingBudgetInput, elements.thinkingBudgetUnlimited),
       thinkingEnabled: elements.thinkingToggle.checked
     },
     messages: state.messages
@@ -773,14 +780,17 @@ function applyRecordParameters(parameters) {
   if (parameters.topP !== undefined) {
     elements.topPInput.value = parameters.topP;
   }
-  if (parameters.maxTokens !== undefined) {
-    elements.maxTokensInput.value = parameters.maxTokens;
+  if (hasOwn(parameters, "maxTokens")) {
+    elements.maxTokensUnlimited.checked = parameters.maxTokens === null;
+    elements.maxTokensInput.value = parameters.maxTokens === null ? "" : parameters.maxTokens;
   }
-  if (parameters.thinkingBudget !== undefined) {
-    elements.thinkingBudgetInput.value = parameters.thinkingBudget;
+  if (hasOwn(parameters, "thinkingBudget")) {
+    elements.thinkingBudgetUnlimited.checked = parameters.thinkingBudget === null;
+    elements.thinkingBudgetInput.value = parameters.thinkingBudget === null ? "" : parameters.thinkingBudget;
   }
   elements.thinkingToggle.checked = Boolean(parameters.thinkingEnabled);
   syncSliderLabels();
+  syncUnlimitedControls();
 }
 
 async function deleteRecord(recordId) {
@@ -914,8 +924,8 @@ function buildPayload() {
     parameters: {
       temperature: Number(elements.temperatureInput.value),
       topP: Number(elements.topPInput.value),
-      maxTokens: Number(elements.maxTokensInput.value),
-      thinkingBudget: Number(elements.thinkingBudgetInput.value),
+      maxTokens: optionalNumberValue(elements.maxTokensInput, elements.maxTokensUnlimited),
+      thinkingBudget: optionalNumberValue(elements.thinkingBudgetInput, elements.thinkingBudgetUnlimited),
       thinkingEnabled: elements.thinkingToggle.checked
     }
   };
@@ -1108,6 +1118,30 @@ function syncSliderLabels() {
   elements.topPValue.value = elements.topPInput.value;
 }
 
+function syncUnlimitedControls() {
+  const controls = [
+    [elements.maxTokensInput, elements.maxTokensUnlimited],
+    [elements.thinkingBudgetInput, elements.thinkingBudgetUnlimited]
+  ];
+
+  controls.forEach(([input, checkbox]) => {
+    const unlimited = checkbox.checked;
+    input.disabled = unlimited;
+    input.placeholder = unlimited ? t("unlimited") : "";
+    if (unlimited) {
+      input.value = "";
+    }
+  });
+}
+
+function optionalNumberValue(input, unlimitedCheckbox) {
+  if (unlimitedCheckbox.checked) {
+    return null;
+  }
+  const raw = input.value.trim();
+  return raw ? Number(raw) : null;
+}
+
 function updateSessionTitle() {
   elements.sessionTitle.textContent = t("chatEyebrow");
 }
@@ -1156,6 +1190,10 @@ function formatErrorPayload(payload) {
     .filter(Boolean)
     .join(" · ")
     .slice(0, 900);
+}
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
 }
 
 function t(key) {
