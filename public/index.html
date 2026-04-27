@@ -191,18 +191,18 @@
                   <div class="bench-targets-head">
                     <label class="bench-label" data-i18n="benchTargets">targets</label>
                     <div class="bench-targets-actions">
-                      <button id="benchAddCurrent" class="ghost-button" type="button" data-i18n="benchUseCurrent">use current</button>
-                      <button id="benchAddTarget" class="ghost-button" type="button" data-i18n="benchAddTarget">+ add target</button>
+                      <button id="benchAddCurrent" class="ghost-button" type="button" data-bench-action="add-current" data-i18n="benchUseCurrent">use current</button>
+                      <button id="benchAddTarget" class="ghost-button" type="button" data-bench-action="add-target" data-i18n="benchAddTarget">+ add target</button>
                     </div>
                   </div>
                   <div id="benchTargets" class="bench-targets"></div>
                 </div>
                 <div class="bench-actions">
-                  <button id="benchRun" class="primary-button" type="button">
+                  <button id="benchRun" class="primary-button" type="button" data-bench-action="run">
                     <span data-i18n="benchRun">run latency</span>
                     <span class="primary-shortcut">▶</span>
                   </button>
-                  <button id="benchStop" class="ghost-button danger" type="button" disabled data-i18n="stop">stop</button>
+                  <button id="benchStop" class="ghost-button danger" type="button" disabled data-bench-action="stop" data-i18n="stop">stop</button>
                   <span id="benchRunStatus" class="run-status" data-state="idle">
                     <span class="run-dot" aria-hidden="true"></span>
                     <span class="run-label" data-i18n="benchIdle">idle</span>

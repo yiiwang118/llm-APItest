@@ -331,6 +331,12 @@ const state = {
 init();
 
 async function init() {
+  window.addEventListener("error", (event) => {
+    console.error("[uncaught]", event.error || event.message);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[promise]", event.reason);
+  });
   applyTheme();
   bindEvents();
   applyLanguage();
@@ -431,10 +437,21 @@ function bindEvents() {
   elements.themeToggle.addEventListener("click", toggleTheme);
   elements.logoutButton.addEventListener("click", logout);
 
-  elements.benchAddTarget?.addEventListener("click", () => addBenchTarget());
-  elements.benchAddCurrent?.addEventListener("click", () => addBenchTarget(currentTargetSeed()));
-  elements.benchRun?.addEventListener("click", runLatencyBench);
-  elements.benchStop?.addEventListener("click", stopLatencyBench);
+  document.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-bench-action]");
+    if (!action) return;
+    try {
+      switch (action.dataset.benchAction) {
+        case "add-target": addBenchTarget(); break;
+        case "add-current": addBenchTarget(currentTargetSeed()); break;
+        case "run": runLatencyBench(); break;
+        case "stop": stopLatencyBench(); break;
+      }
+    } catch (err) {
+      console.error("[bench] action failed", action.dataset.benchAction, err);
+      setBenchStatus("error", err?.message || "action failed");
+    }
+  });
   elements.benchTargets?.addEventListener("click", (event) => {
     const removeBtn = event.target.closest("[data-bench-remove]");
     if (removeBtn) removeBenchTarget(removeBtn.dataset.benchRemove);
