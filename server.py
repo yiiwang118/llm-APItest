@@ -1022,7 +1022,7 @@ def build_openai_compatible_request(provider, payload):
         if provider.get("thinkingMode") == "thinking-object":
             body["thinking"] = {"type": "enabled"}
             if provider.get("reasoningEffortPlacement") == "top-level":
-                body["reasoning_effort"] = deepseek_reasoning_effort(params["reasoningEffort"])
+                body["reasoning_effort"] = params["reasoningEffort"]
             elif provider.get("reasoningEffortPlacement") == "thinking-field":
                 body["thinking"]["reasoning_effort"] = params["reasoningEffort"]
         if provider.get("thinkingMode") == "enable-thinking":
@@ -1167,10 +1167,6 @@ def normalize_parameters(raw):
         if raw.get("reasoningEffort") in {"low", "medium", "high", "max"}
         else "high",
     }
-
-
-def deepseek_reasoning_effort(value):
-    return "max" if value == "max" else "high"
 
 
 def optional_token_limit(value, minimum):

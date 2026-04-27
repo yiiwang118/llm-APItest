@@ -1,76 +1,108 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LLM API Test Studio</title>
+    <title>api / studio — multi-model gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='3' width='8' height='8' fill='%23cdf654'/><rect x='13' y='3' width='8' height='8' fill='none' stroke='%23cdf654' stroke-width='1.5'/><rect x='3' y='13' width='8' height='8' fill='none' stroke='%23cdf654' stroke-width='1.5'/><rect x='13' y='13' width='8' height='8' fill='none' stroke='%23cdf654' stroke-width='1.5'/></svg>" />
   </head>
   <body>
-    <section id="authScreen" class="auth-screen">
-      <form id="loginForm" class="login-card">
-        <div>
-          <div class="eyebrow">AI Studio</div>
-          <h1 data-i18n="loginTitle">Sign in</h1>
-        </div>
-        <div class="field-group">
-          <label for="loginUserInput" data-i18n="loginUser">User</label>
-          <input id="loginUserInput" name="user" autocomplete="username" placeholder="yiiwang" />
-        </div>
-        <div id="loginError" class="field-note is-error"></div>
-        <button class="primary-button login-button" type="submit" data-i18n="loginAction">Continue</button>
-      </form>
-    </section>
+    <div id="bootScreen" class="boot-screen">
+      <div class="boot-mark">
+        <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="8" height="8" />
+          <rect x="13" y="3" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <rect x="3" y="13" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <rect x="13" y="13" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+        </svg>
+      </div>
+      <div class="boot-line">initializing gateway</div>
+    </div>
 
     <div id="appShell" class="app-shell is-hidden">
       <aside class="sidebar" aria-label="Primary">
-        <div class="brand">
-          <div>
-            <strong>AI Studio</strong>
-            <span id="brandSubtitle">LLM Gateway Lab</span>
+        <header class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="8" height="8" />
+              <rect x="13" y="3" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+              <rect x="3" y="13" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+              <rect x="13" y="13" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+            </svg>
+          </span>
+          <div class="brand-text">
+            <strong>api<span class="brand-slash">/</span>studio</strong>
+            <span id="brandSubtitle" class="brand-subtitle">multi-model gateway</span>
           </div>
-        </div>
+        </header>
 
-        <nav class="nav-list">
+        <nav class="nav-list" aria-label="Workspace">
           <button class="nav-item is-active" data-view="chat" type="button">
-            <span class="nav-icon">●</span>
-            <span data-i18n="navChat">Chat</span>
+            <span class="nav-glyph">▣</span>
+            <span data-i18n="navChat">Playground</span>
+            <span class="nav-shortcut">⌘1</span>
           </button>
           <button class="nav-item" data-view="benchmarks" type="button">
-            <span class="nav-icon">◆</span>
-            <span data-i18n="navBenchmark">Benchmark</span>
+            <span class="nav-glyph">◇</span>
+            <span data-i18n="navBenchmark">Benchmarks</span>
+            <span class="nav-shortcut">⌘2</span>
           </button>
           <button class="nav-item" data-view="providers" type="button">
-            <span class="nav-icon">■</span>
+            <span class="nav-glyph">⌬</span>
             <span data-i18n="navProviders">Providers</span>
+            <span class="nav-shortcut">⌘3</span>
           </button>
         </nav>
 
-        <div class="record-rail">
-          <div class="rail-title" data-i18n="history">History</div>
+        <section class="rail">
+          <div class="rail-head">
+            <span class="rail-title" data-i18n="history">history</span>
+            <button id="newSession" class="rail-action" type="button" title="New session" data-i18n-title="newSession">+</button>
+          </div>
           <div id="recordList" class="record-list"></div>
-        </div>
+        </section>
 
-        <div class="provider-rail">
-          <div class="rail-title" data-i18n="providerRail">Providers</div>
+        <section class="rail rail-providers">
+          <div class="rail-head">
+            <span class="rail-title" data-i18n="providerRail">providers</span>
+          </div>
           <div id="providerRail" class="provider-list"></div>
-        </div>
+        </section>
 
-        <div class="sidebar-footer">
-          <span id="userBadge"></span>
-          <button id="logoutButton" class="text-button" type="button" data-i18n="logout">Logout</button>
-        </div>
+        <footer class="sidebar-footer">
+          <div class="user-chip">
+            <span class="user-avatar" aria-hidden="true">y</span>
+            <div class="user-meta">
+              <span id="userBadge">yiiwang</span>
+              <span class="user-status">signed in</span>
+            </div>
+          </div>
+          <button id="logoutButton" class="text-button" type="button" data-i18n="logout">exit</button>
+        </footer>
       </aside>
 
       <main class="workspace">
         <section id="chatView" class="view view-chat">
           <header class="workspace-topbar">
-            <h1 id="sessionTitle">Playground</h1>
+            <div class="topbar-left">
+              <h1 id="sessionTitle">Playground</h1>
+              <span id="sessionMeta" class="session-meta"></span>
+            </div>
             <div class="topbar-actions">
-              <button id="languageToggle" class="ghost-button" type="button">中文</button>
-              <button id="saveRecord" class="ghost-button" type="button" data-i18n="save">Save</button>
-              <button id="clearChat" class="ghost-button" type="button" data-i18n="clear">Clear</button>
-              <button id="stopStream" class="ghost-button danger" type="button" disabled data-i18n="stop">Stop</button>
+              <button id="languageToggle" class="ghost-button" type="button" title="Language">EN</button>
+              <button id="themeToggle" class="ghost-button" type="button" title="Theme">
+                <span class="theme-icon" aria-hidden="true">◐</span>
+              </button>
+              <button id="saveRecord" class="ghost-button" type="button" data-i18n="save">save</button>
+              <button id="clearChat" class="ghost-button" type="button" data-i18n="clear">clear</button>
+              <button id="stopStream" class="ghost-button danger" type="button" disabled data-i18n="stop">stop</button>
             </div>
           </header>
 
@@ -78,19 +110,43 @@
 
           <form id="chatForm" class="composer">
             <div class="prompt-row">
-              <button type="button" class="prompt-chip" data-prompt-key="promptIntro">Model intro</button>
-              <button type="button" class="prompt-chip" data-prompt-key="promptReasoning">Reasoning test</button>
-              <button type="button" class="prompt-chip" data-prompt-key="promptSplit">Task split</button>
+              <button type="button" class="prompt-chip" data-prompt-key="promptIntro">
+                <span class="chip-key">01</span>
+                <span data-i18n="promptIntroLabel">Model intro</span>
+              </button>
+              <button type="button" class="prompt-chip" data-prompt-key="promptReasoning">
+                <span class="chip-key">02</span>
+                <span data-i18n="promptReasoningLabel">Reasoning test</span>
+              </button>
+              <button type="button" class="prompt-chip" data-prompt-key="promptSplit">
+                <span class="chip-key">03</span>
+                <span data-i18n="promptSplitLabel">Task split</span>
+              </button>
             </div>
-            <label class="sr-only" for="promptInput">Prompt</label>
-            <textarea id="promptInput" name="prompt" rows="4" placeholder="输入消息，使用当前右侧配置发起流式请求"></textarea>
-            <div id="attachmentTray" class="attachment-tray"></div>
-            <div class="composer-footer">
-              <span id="runStatus">Ready</span>
-              <div class="composer-actions">
-                <label class="ghost-button attach-button" for="attachmentInput" data-i18n="attach">Attach</label>
-                <input id="attachmentInput" class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" />
-                <button id="sendButton" class="primary-button" type="submit" data-i18n="send">Send</button>
+            <div class="composer-shell">
+              <label class="sr-only" for="promptInput">Prompt</label>
+              <textarea
+                id="promptInput"
+                name="prompt"
+                rows="3"
+                placeholder="Message the selected model — ⌘ Enter to send"
+              ></textarea>
+              <div id="attachmentTray" class="attachment-tray"></div>
+              <div class="composer-footer">
+                <span id="runStatus" class="run-status">
+                  <span class="run-dot" aria-hidden="true"></span>
+                  <span class="run-label">ready</span>
+                </span>
+                <div class="composer-actions">
+                  <label class="icon-button" for="attachmentInput" title="Attach">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5L12 20.5C9.79 22.71 6.21 22.71 4 20.5C1.79 18.29 1.79 14.71 4 12.5L13 3.5C14.66 1.84 17.34 1.84 19 3.5C20.66 5.16 20.66 7.84 19 9.5L10.5 18C9.67 18.83 8.33 18.83 7.5 18C6.67 17.17 6.67 15.83 7.5 15L15 7.5"/></svg>
+                  </label>
+                  <input id="attachmentInput" class="sr-only" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,text/csv,application/json,.txt,.md,.csv,.json" />
+                  <button id="sendButton" class="primary-button" type="submit">
+                    <span data-i18n="send">send</span>
+                    <span class="primary-shortcut">⌘↵</span>
+                  </button>
+                </div>
               </div>
             </div>
           </form>
@@ -98,19 +154,19 @@
 
         <section id="benchmarksView" class="view is-hidden">
           <header class="workspace-topbar compact">
-            <div>
-              <div class="eyebrow" data-i18n="benchmarkEyebrow">Evaluation</div>
+            <div class="topbar-left">
+              <span class="eyebrow" data-i18n="benchmarkEyebrow">evaluation</span>
               <h1 data-i18n="benchmarkTitle">Benchmark Framework</h1>
             </div>
-            <button id="dryRunBenchmark" class="ghost-button" type="button" data-i18n="dryRun">Dry run</button>
+            <button id="dryRunBenchmark" class="ghost-button" type="button" data-i18n="dryRun">dry run</button>
           </header>
           <div id="benchmarkGrid" class="benchmark-grid"></div>
         </section>
 
         <section id="providersView" class="view is-hidden">
           <header class="workspace-topbar compact">
-            <div>
-              <div class="eyebrow" data-i18n="registryEyebrow">Registry</div>
+            <div class="topbar-left">
+              <span class="eyebrow" data-i18n="registryEyebrow">registry</span>
               <h1 data-i18n="providerTitle">Provider Matrix</h1>
             </div>
           </header>
@@ -118,15 +174,18 @@
         </section>
       </main>
 
-      <aside class="settings-panel">
-        <div class="panel-header">
-          <h2 data-i18n="modelSettings">Run settings</h2>
-        </div>
+      <aside class="settings-panel" aria-label="Run settings">
+        <header class="panel-header">
+          <span class="eyebrow">run config</span>
+          <span id="connectionBadge" class="status-badge">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="status-label">live</span>
+          </span>
+        </header>
 
         <section class="settings-card">
           <div class="settings-card-head">
             <h3 data-i18n="model">Model</h3>
-            <span id="connectionBadge" class="status-badge">Live</span>
           </div>
 
           <div class="field-group">
@@ -137,7 +196,7 @@
           <div class="field-group">
             <div class="field-label-row">
               <label for="modelInput" data-i18n="model">Model</label>
-              <button id="refreshModels" class="mini-button" type="button" data-i18n="refreshModels">Refresh</button>
+              <button id="refreshModels" class="mini-button" type="button" data-i18n="refreshModels">refresh</button>
             </div>
             <input id="modelInput" list="modelOptions" autocomplete="off" spellcheck="false" />
             <datalist id="modelOptions"></datalist>
@@ -145,8 +204,14 @@
           </div>
 
           <div class="field-group">
-            <label for="apiKeyInput">API Key</label>
-            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+            <label for="apiKeyInput">API key</label>
+            <div class="input-wrap">
+              <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+              <button id="apiKeyToggle" type="button" class="input-affix" title="Reveal">
+                <svg class="affix-icon eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="affix-icon eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 10.6A2 2 0 0 0 13.4 13.4"/><path d="M9.9 5.2A11 11 0 0 1 12 5C19 5 22 12 22 12C21.4 13.4 20.5 14.7 19.4 15.8M6.6 6.6C3.9 8.4 2 12 2 12C2 12 5 19 12 19A11 11 0 0 0 17.4 17.4"/></svg>
+              </button>
+            </div>
           </div>
 
           <details class="advanced">
@@ -161,11 +226,12 @@
         <section class="settings-card">
           <h3 data-i18n="systemPrompt">System instructions</h3>
           <div class="field-group fill">
-            <textarea id="systemPromptInput" rows="5" placeholder="You are a helpful assistant."></textarea>
+            <textarea id="systemPromptInput" rows="4" placeholder="You are a helpful assistant."></textarea>
           </div>
         </section>
 
-        <section class="settings-section">
+        <section class="settings-card">
+          <h3 data-i18n="parameters">Parameters</h3>
           <div class="slider-group">
             <div class="slider-head">
               <label for="temperatureInput" data-i18n="temperature">Temperature</label>
@@ -188,7 +254,7 @@
                 <label for="maxTokensInput" data-i18n="maxTokens">Max tokens</label>
                 <label class="inline-check">
                   <input id="maxTokensUnlimited" type="checkbox" />
-                  <span data-i18n="unlimited">Unlimited</span>
+                  <span data-i18n="unlimited">unlimited</span>
                 </label>
               </div>
               <input id="maxTokensInput" type="number" min="1" step="128" value="2048" />
@@ -198,22 +264,33 @@
                 <label for="thinkingBudgetInput" data-i18n="thinkBudget">Think budget</label>
                 <label class="inline-check">
                   <input id="thinkingBudgetUnlimited" type="checkbox" />
-                  <span data-i18n="unlimited">Unlimited</span>
+                  <span data-i18n="unlimited">unlimited</span>
                 </label>
               </div>
               <input id="thinkingBudgetInput" type="number" min="0" step="128" value="2048" />
             </div>
           </div>
 
+          <div class="field-group">
+            <label for="reasoningEffortSelect" data-i18n="reasoningEffort">Reasoning effort</label>
+            <select id="reasoningEffortSelect">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high" selected>high</option>
+              <option value="max">max</option>
+            </select>
+          </div>
+
           <label class="toggle-row">
-            <input id="thinkingToggle" type="checkbox" />
             <span data-i18n="showReasoning">Show reasoning stream</span>
+            <input id="thinkingToggle" type="checkbox" />
           </label>
         </section>
 
-        <div class="docs-link">
-          <a id="docsLink" href="#" target="_blank" rel="noreferrer" data-i18n="providerDocs">Provider docs</a>
-        </div>
+        <a id="docsLink" class="docs-link" href="#" target="_blank" rel="noreferrer">
+          <span data-i18n="providerDocs">Provider docs</span>
+          <span class="docs-arrow" aria-hidden="true">→</span>
+        </a>
       </aside>
     </div>
 
