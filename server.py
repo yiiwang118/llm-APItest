@@ -286,7 +286,16 @@ class Handler(SimpleHTTPRequestHandler):
                     "fallbackModels": provider.get("models", []),
                 },
             )
-        except (ValueError, json.JSONDecodeError, URLError, TimeoutError, OSError) as error:
+        except ValueError as error:
+            self.send_json(
+                400,
+                {
+                    "error": str(error),
+                    "details": str(error),
+                    "fallbackModels": provider.get("models", []),
+                },
+            )
+        except (json.JSONDecodeError, URLError, TimeoutError, OSError) as error:
             self.send_json(
                 502,
                 {
