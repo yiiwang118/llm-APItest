@@ -450,7 +450,13 @@ function renderProviders() {
     .map(
       (provider) => `
         <article class="provider-item">
-          <h3>${escapeHtml(provider.name)}</h3>
+          <div class="provider-card-head">
+            <span class="provider-mark">${escapeHtml(providerInitials(provider.name))}</span>
+            <div class="provider-card-title">
+              <span class="card-kicker">${escapeHtml(provider.adapter.replace("-compatible", ""))}</span>
+              <h3>${escapeHtml(provider.name)}</h3>
+            </div>
+          </div>
           <p>${escapeHtml(provider.baseUrl)}</p>
           <div class="tag-row">
             ${provider.capabilities.map((capability) => `<span class="tag">${escapeHtml(capability)}</span>`).join("")}
@@ -1209,6 +1215,16 @@ function capabilityLabel(provider) {
     return "reasoning";
   }
   return provider.adapter.replace("-compatible", "");
+}
+
+function providerInitials(name) {
+  return String(name || "")
+    .split(/[\s/]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 }
 
 function formatErrorPayload(payload) {
