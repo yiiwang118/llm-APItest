@@ -846,6 +846,7 @@ output {
 
 .benchmark-item,
 .provider-item {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: white;
@@ -861,9 +862,12 @@ output {
 
 .benchmark-item p,
 .provider-item p {
+  min-width: 0;
   color: var(--muted);
   line-height: 1.55;
   margin: 0 0 16px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tag-row {
@@ -873,12 +877,14 @@ output {
 }
 
 .tag {
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--soft-2);
   color: var(--muted);
   font-size: 12px;
   font-weight: 500;
+  overflow-wrap: anywhere;
   padding: 5px 8px;
 }
 

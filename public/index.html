@@ -139,7 +139,8 @@
               <label for="modelInput" data-i18n="model">Model</label>
               <button id="refreshModels" class="mini-button" type="button" data-i18n="refreshModels">Refresh</button>
             </div>
-            <select id="modelInput"></select>
+            <input id="modelInput" list="modelOptions" autocomplete="off" spellcheck="false" />
+            <datalist id="modelOptions"></datalist>
             <div id="modelStatus" class="field-note"></div>
           </div>
 

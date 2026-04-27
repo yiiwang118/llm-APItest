@@ -6,6 +6,7 @@ const elements = {
   loginError: document.querySelector("#loginError"),
   providerSelect: document.querySelector("#providerSelect"),
   modelInput: document.querySelector("#modelInput"),
+  modelOptions: document.querySelector("#modelOptions"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   refreshModels: document.querySelector("#refreshModels"),
@@ -213,7 +214,9 @@ const state = {
   user: "",
   abortController: null,
   busy: false,
-  modelBusy: false
+  modelBusy: false,
+  modelRefreshTimer: null,
+  modelRefreshSignatures: {}
 };
 
 init();
@@ -284,13 +287,16 @@ function showApp() {
 function bindEvents() {
   elements.loginForm.addEventListener("submit", login);
   elements.providerSelect.addEventListener("change", () => setProvider(elements.providerSelect.value));
-  elements.modelInput.addEventListener("change", updateSessionTitle);
-  elements.refreshModels.addEventListener("click", refreshModels);
-  elements.apiKeyInput.addEventListener("change", () => {
+  elements.modelInput.addEventListener("input", updateSessionTitle);
+  elements.refreshModels.addEventListener("click", () => refreshModels({ force: true }));
+  elements.apiKeyInput.addEventListener("input", () => {
     if (elements.apiKeyInput.value.trim()) {
       setModelStatus(t("modelRefreshReady"), false);
     }
+    scheduleModelRefresh();
   });
+  elements.apiKeyInput.addEventListener("change", scheduleModelRefresh);
+  elements.baseUrlInput.addEventListener("change", scheduleModelRefresh);
   elements.temperatureInput.addEventListener("input", syncSliderLabels);
   elements.topPInput.addEventListener("input", syncSliderLabels);
   elements.attachmentInput.addEventListener("change", handleAttachmentFiles);
@@ -593,6 +599,7 @@ function setProvider(providerId) {
   markActiveProvider();
   updateSessionTitle();
   setModelStatus(modelStatusForProvider(), false);
+  scheduleModelRefresh();
 }
 
 function renderModelOptions(providerId, selectedModel) {
@@ -602,20 +609,50 @@ function renderModelOptions(providerId, selectedModel) {
   const hasPreferred = models.some((model) => model.id === preferred);
   const finalModels = hasPreferred || !preferred ? models : [{ id: preferred, name: preferred }, ...models];
 
-  elements.modelInput.innerHTML = finalModels
-    .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
+  elements.modelOptions.innerHTML = finalModels
+    .map((model) => `<option value="${escapeHtml(model.id)}" label="${escapeHtml(model.name || model.id)}"></option>`)
     .join("");
   elements.modelInput.value = preferred;
 }
 
-async function refreshModels() {
+function scheduleModelRefresh() {
+  if (!state.activeProvider || state.modelBusy) {
+    return;
+  }
+  const hasApiKey = Boolean(elements.apiKeyInput.value.trim());
+  if (!hasApiKey && state.activeProvider.id !== "openrouter") {
+    return;
+  }
+
+  window.clearTimeout(state.modelRefreshTimer);
+  state.modelRefreshTimer = window.setTimeout(() => {
+    refreshModels({ silent: true });
+  }, 700);
+}
+
+async function refreshModels(options = {}) {
   if (!state.activeProvider || state.modelBusy) {
     return;
   }
 
+  const force = options.force === true;
+  const silent = options.silent === true;
+  const signature = [
+    state.activeProvider.id,
+    elements.baseUrlInput.value.trim(),
+    elements.apiKeyInput.value.trim()
+  ].join("|");
+
+  if (!force && state.modelRefreshSignatures[state.activeProvider.id] === signature) {
+    return;
+  }
+  window.clearTimeout(state.modelRefreshTimer);
+
   state.modelBusy = true;
   elements.refreshModels.disabled = true;
-  setModelStatus(`${t("modelRefreshing")}...`, false);
+  if (!silent) {
+    setModelStatus(`${t("modelRefreshing")}...`, false);
+  }
 
   try {
     const response = await fetch("/api/models", {
@@ -638,6 +675,7 @@ async function refreshModels() {
       return;
     }
 
+    state.modelRefreshSignatures[state.activeProvider.id] = signature;
     state.modelLists[state.activeProvider.id] = normalizeModelOptions(data.models || []);
     renderModelOptions(state.activeProvider.id, elements.modelInput.value || state.activeProvider.defaultModel);
     updateSessionTitle();
