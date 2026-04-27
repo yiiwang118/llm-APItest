@@ -8,35 +8,33 @@
 - 后端统一代理不同厂商的流式接口，前端按 `token`、`reasoning`、`usage` 标准事件渲染。
 - API Key 不写入本地文件，只随当前请求发送到后端代理。
 - 预留 benchmark 模块：延迟、质量、推理、自定义数据集四类指标框架。
-- 无构建步骤，服务器安装 Node.js 18+ 后可直接运行。
+- 无构建步骤，无第三方依赖，服务器有 Python 3.10+ 即可直接运行。
 
 ## 项目结构
 
 ```text
 .
 ├── public/              # 前端静态页面、样式和交互逻辑
-├── src/providers.js     # 厂商配置、默认模型和 benchmark 框架
-├── server.js            # HTTP 服务、静态资源、API 代理、SSE 转发
-├── package.json         # 运行脚本
+├── server.py            # HTTP 服务、静态资源、API 代理、SSE 转发
 └── README.md
 ```
 
 ## 运行方式
 
 ```bash
-npm start
+python3 server.py
 ```
 
 默认监听 `0.0.0.0:3000`。如需指定端口：
 
 ```bash
-PORT=8080 npm start
+PORT=8080 python3 server.py
 ```
 
 ## 检查命令
 
 ```bash
-npm run check
+python3 -m py_compile server.py
 ```
 
 ## 参考文档

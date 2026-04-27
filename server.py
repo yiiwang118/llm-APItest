@@ -1,0 +1,625 @@
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
+import json
+import os
+import time
+
+
+ROOT = Path(__file__).resolve().parent
+PUBLIC_DIR = ROOT / "public"
+MAX_BODY_BYTES = 1024 * 1024
+
+
+PROVIDERS = [
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.openai.com/v1",
+        "defaultModel": "gpt-5.2",
+        "models": ["gpt-5.2", "gpt-5.1", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
+        "docs": "https://platform.openai.com/docs/api-reference/chat/create-chat-completion",
+        "capabilities": ["stream", "text", "tools"],
+    },
+    {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "adapter": "anthropic",
+        "baseUrl": "https://api.anthropic.com/v1",
+        "defaultModel": "claude-sonnet-4-5",
+        "models": ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+        "docs": "https://docs.anthropic.com/claude/reference/messages-streaming",
+        "capabilities": ["stream", "text", "thinking"],
+    },
+    {
+        "id": "google",
+        "name": "Google Gemini",
+        "adapter": "gemini",
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+        "defaultModel": "gemini-2.5-pro",
+        "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+        "docs": "https://ai.google.dev/docs/gemini_api_overview",
+        "capabilities": ["stream", "text", "multimodal"],
+    },
+    {
+        "id": "zhipu",
+        "name": "Zhipu GLM",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+        "defaultModel": "glm-4.7",
+        "models": ["glm-4.7", "glm-4.6", "glm-4.5", "glm-4.5v", "glm-z1-air"],
+        "docs": "https://docs.bigmodel.cn/api-reference",
+        "thinkingMode": "thinking-object",
+        "capabilities": ["stream", "text", "thinking", "multimodal"],
+    },
+    {
+        "id": "qwen",
+        "name": "Qwen / DashScope",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "defaultModel": "qwen-plus",
+        "models": [
+            "qwen3-max",
+            "qwen-plus",
+            "qwen-flash",
+            "qwen3-235b-a22b-thinking-2507",
+            "qwen-vl-max-latest",
+        ],
+        "docs": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+        "thinkingMode": "enable-thinking",
+        "capabilities": ["stream", "text", "thinking", "multimodal"],
+    },
+    {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.deepseek.com",
+        "defaultModel": "deepseek-v4-flash",
+        "models": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+        "docs": "https://api-docs.deepseek.com/api/create-chat-completion",
+        "thinkingMode": "thinking-object",
+        "capabilities": ["stream", "text", "thinking"],
+    },
+    {
+        "id": "xiaomi",
+        "name": "Xiaomi MiMo",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.xiaomimimo.com/v1",
+        "defaultModel": "mimo-v2-flash",
+        "models": ["mimo-v2-flash", "mimo-v2-pro", "mimo-v2-omni"],
+        "docs": "https://www.xiaomi-mimo-ai.com/",
+        "thinkingMode": "thinking-object",
+        "capabilities": ["stream", "text", "thinking", "multimodal"],
+    },
+    {
+        "id": "minimax",
+        "name": "MiniMax",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.minimax.io/v1",
+        "defaultModel": "MiniMax-M2.5",
+        "models": [
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5",
+            "MiniMax-M2.1",
+            "MiniMax-M2",
+        ],
+        "docs": "https://platform.minimax.io/docs/api-reference/text-chat",
+        "capabilities": ["stream", "text", "thinking"],
+    },
+    {
+        "id": "siliconflow",
+        "name": "SiliconFlow",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.siliconflow.com/v1",
+        "defaultModel": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+        "models": [
+            "deepseek-ai/DeepSeek-V3.2",
+            "deepseek-ai/DeepSeek-R1",
+            "Qwen/Qwen3-235B-A22B-Thinking-2507",
+            "zai-org/GLM-5.1",
+            "MiniMaxAI/MiniMax-M2.5",
+        ],
+        "docs": "https://docs.siliconflow.com/en/api-reference/chat-completions/chat-completions",
+        "thinkingMode": "enable-thinking",
+        "capabilities": ["stream", "text", "thinking", "gateway"],
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "adapter": "openai-compatible",
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "defaultModel": "openai/gpt-5.2",
+        "models": [
+            "openai/gpt-5.2",
+            "anthropic/claude-sonnet-4.5",
+            "google/gemini-2.5-pro",
+            "deepseek/deepseek-v4-flash",
+        ],
+        "docs": "https://openrouter.ai/docs/api-reference/chat-completion",
+        "extraHeaders": {"HTTP-Referer": "http://localhost", "X-Title": "LLM API Test Studio"},
+        "capabilities": ["stream", "text", "gateway"],
+    },
+]
+
+
+BENCHMARKS = [
+    {
+        "id": "latency",
+        "name": "Latency",
+        "status": "planned",
+        "metrics": ["first_token_ms", "total_ms", "tokens_per_second"],
+        "description": "Measures response speed and streaming cadence for identical prompts.",
+    },
+    {
+        "id": "quality",
+        "name": "Quality",
+        "status": "planned",
+        "metrics": ["judge_score", "pass_rate", "format_accuracy"],
+        "description": "Keeps a hook for model-graded and rule-based answer quality checks.",
+    },
+    {
+        "id": "reasoning",
+        "name": "Reasoning",
+        "status": "planned",
+        "metrics": ["pass_at_1", "reasoning_tokens", "cost_per_pass"],
+        "description": "Reserved for GPQA, math, coding, and long-context reasoning tasks.",
+    },
+    {
+        "id": "custom",
+        "name": "Custom Set",
+        "status": "planned",
+        "metrics": ["dataset_score", "cost", "regression_delta"],
+        "description": "Provides the future extension point for user-supplied benchmark files.",
+    },
+]
+
+
+class Handler(SimpleHTTPRequestHandler):
+    server_version = "LLMApiTestStudio/0.1"
+
+    def translate_path(self, path):
+        relative = path.split("?", 1)[0].split("#", 1)[0].lstrip("/") or "index.html"
+        target = (PUBLIC_DIR / relative).resolve()
+        if not str(target).startswith(str(PUBLIC_DIR.resolve())) or not target.exists():
+            return str(PUBLIC_DIR / "index.html")
+        return str(target)
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def do_GET(self):
+        if self.path == "/api/health":
+            self.send_json(200, {"ok": True, "name": "LLM API Test Studio"})
+            return
+        if self.path == "/api/providers":
+            self.send_json(200, {"providers": public_providers(), "benchmarks": BENCHMARKS})
+            return
+        if self.path == "/api/benchmarks":
+            self.send_json(200, {"benchmarks": BENCHMARKS})
+            return
+        super().do_GET()
+
+    def do_POST(self):
+        if self.path == "/api/benchmarks/run":
+            self.send_json(
+                202,
+                {
+                    "status": "planned",
+                    "message": "Benchmark runner interface is reserved; execution is not implemented yet.",
+                    "benchmarks": BENCHMARKS,
+                },
+            )
+            return
+        if self.path == "/api/chat":
+            self.handle_chat()
+            return
+        self.send_json(405, {"error": "Method not allowed"})
+
+    def send_json(self, status, payload):
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_BODY_BYTES:
+            raise ValueError("Request body is too large")
+        raw = self.rfile.read(length)
+        return json.loads(raw.decode("utf-8") or "{}")
+
+    def handle_chat(self):
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+
+        provider = get_provider(payload.get("providerId"))
+        api_key = str(payload.get("apiKey") or "").strip()
+        model = str(payload.get("model") or provider.get("defaultModel") if provider else "").strip()
+
+        if not provider:
+            self.send_json(400, {"error": "Unknown provider"})
+            return
+        if not api_key:
+            self.send_json(400, {"error": "API key is required"})
+            return
+        if not model:
+            self.send_json(400, {"error": "Model is required"})
+            return
+
+        messages = normalize_messages(payload.get("messages"), payload.get("systemPrompt"))
+        if not any(message["role"] == "user" for message in messages):
+            self.send_json(400, {"error": "At least one user message is required"})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        started = time.time()
+        self.write_sse(
+            "meta",
+            {
+                "provider": provider["id"],
+                "providerName": provider["name"],
+                "model": model,
+                "startedAt": iso_now(),
+            },
+        )
+
+        try:
+            upstream = build_upstream_request(
+                provider,
+                {
+                    **payload,
+                    "apiKey": api_key,
+                    "model": model,
+                    "messages": messages,
+                },
+            )
+            request = Request(
+                upstream["url"],
+                data=json.dumps(upstream["body"]).encode("utf-8"),
+                headers=upstream["headers"],
+                method="POST",
+            )
+            with urlopen(request, timeout=180) as response:
+                if provider["adapter"] == "anthropic":
+                    relay_anthropic_stream(response, self)
+                elif provider["adapter"] == "gemini":
+                    relay_gemini_stream(response, self)
+                else:
+                    relay_openai_compatible_stream(response, self)
+            self.write_sse(
+                "done",
+                {"totalMs": int((time.time() - started) * 1000), "finishedAt": iso_now()},
+            )
+        except HTTPError as error:
+            details = error.read().decode("utf-8", "replace")
+            self.write_sse(
+                "error",
+                {
+                    "message": f"Upstream request failed with {error.code}",
+                    "status": error.code,
+                    "details": details[:2000],
+                },
+            )
+        except (URLError, TimeoutError, OSError) as error:
+            self.write_sse("error", {"message": str(error)})
+
+    def write_sse(self, event, payload):
+        data = json.dumps(payload, ensure_ascii=False)
+        try:
+            self.wfile.write(f"event: {event}\n".encode("utf-8"))
+            self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+            self.wfile.flush()
+        except BrokenPipeError:
+            raise ConnectionError("Client disconnected")
+
+
+def public_providers():
+    keys = {"id", "name", "adapter", "baseUrl", "defaultModel", "models", "docs", "capabilities"}
+    return [{key: provider[key] for key in keys if key in provider} for provider in PROVIDERS]
+
+
+def get_provider(provider_id):
+    return next((provider for provider in PROVIDERS if provider["id"] == provider_id), None)
+
+
+def normalize_messages(messages, system_prompt):
+    normalized = []
+    system = str(system_prompt or "").strip()
+    if system:
+        normalized.append({"role": "system", "content": system})
+
+    if not isinstance(messages, list):
+        return normalized
+
+    for message in messages:
+        role = str(message.get("role") or "").lower()
+        content = message.get("content")
+        if role in {"system", "user", "assistant"} and isinstance(content, str) and content.strip():
+            normalized.append({"role": role, "content": content.strip()})
+
+    return normalized[-40:]
+
+
+def build_upstream_request(provider, payload):
+    if provider["adapter"] == "anthropic":
+        return build_anthropic_request(provider, payload)
+    if provider["adapter"] == "gemini":
+        return build_gemini_request(provider, payload)
+    return build_openai_compatible_request(provider, payload)
+
+
+def build_openai_compatible_request(provider, payload):
+    params = normalize_parameters(payload.get("parameters") or {})
+    body = {
+        "model": payload["model"],
+        "messages": payload["messages"],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "temperature": params["temperature"],
+        "top_p": params["topP"],
+        "max_tokens": params["maxTokens"],
+    }
+
+    if params["thinkingEnabled"]:
+        if provider.get("thinkingMode") == "thinking-object":
+            body["thinking"] = {"type": "enabled", "reasoning_effort": params["reasoningEffort"]}
+        if provider.get("thinkingMode") == "enable-thinking":
+            body["enable_thinking"] = True
+            body["thinking_budget"] = params["thinkingBudget"]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {payload['apiKey']}",
+        **provider.get("extraHeaders", {}),
+    }
+    return {
+        "url": f"{normalize_base_url(payload.get('baseUrl') or provider['baseUrl'])}/chat/completions",
+        "headers": headers,
+        "body": body,
+    }
+
+
+def build_anthropic_request(provider, payload):
+    params = normalize_parameters(payload.get("parameters") or {})
+    system_messages = [message["content"] for message in payload["messages"] if message["role"] == "system"]
+    messages = [
+        {
+            "role": "assistant" if message["role"] == "assistant" else "user",
+            "content": message["content"],
+        }
+        for message in payload["messages"]
+        if message["role"] != "system"
+    ]
+    body = {
+        "model": payload["model"],
+        "max_tokens": params["maxTokens"],
+        "messages": messages,
+        "stream": True,
+    }
+    if system_messages:
+        body["system"] = "\n\n".join(system_messages)
+    if params["thinkingEnabled"]:
+        budget_tokens = min(params["thinkingBudget"], max(128, params["maxTokens"] - 1))
+        body["max_tokens"] = max(params["maxTokens"], budget_tokens + 1)
+        body["thinking"] = {"type": "enabled", "budget_tokens": budget_tokens}
+    else:
+        body["temperature"] = params["temperature"]
+        body["top_p"] = params["topP"]
+
+    return {
+        "url": f"{normalize_base_url(payload.get('baseUrl') or provider['baseUrl'])}/messages",
+        "headers": {
+            "Content-Type": "application/json",
+            "x-api-key": payload["apiKey"],
+            "anthropic-version": "2023-06-01",
+        },
+        "body": body,
+    }
+
+
+def build_gemini_request(provider, payload):
+    params = normalize_parameters(payload.get("parameters") or {})
+    system_prompt = "\n\n".join(
+        message["content"] for message in payload["messages"] if message["role"] == "system"
+    )
+    contents = [
+        {
+            "role": "model" if message["role"] == "assistant" else "user",
+            "parts": [{"text": message["content"]}],
+        }
+        for message in payload["messages"]
+        if message["role"] != "system"
+    ]
+    body = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": params["temperature"],
+            "topP": params["topP"],
+            "maxOutputTokens": params["maxTokens"],
+        },
+    }
+    if system_prompt:
+        body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+    if params["thinkingEnabled"]:
+        body["generationConfig"]["thinkingConfig"] = {
+            "includeThoughts": True,
+            "thinkingBudget": params["thinkingBudget"],
+        }
+
+    model = quote(payload["model"], safe="")
+    key = quote(payload["apiKey"], safe="")
+    return {
+        "url": f"{normalize_base_url(payload.get('baseUrl') or provider['baseUrl'])}/models/{model}:streamGenerateContent?alt=sse&key={key}",
+        "headers": {"Content-Type": "application/json"},
+        "body": body,
+    }
+
+
+def normalize_parameters(raw):
+    return {
+        "temperature": clamp_number(raw.get("temperature"), 0, 2, 0.7),
+        "topP": clamp_number(raw.get("topP"), 0, 1, 0.9),
+        "maxTokens": round(clamp_number(raw.get("maxTokens"), 128, 32768, 2048)),
+        "thinkingEnabled": bool(raw.get("thinkingEnabled")),
+        "thinkingBudget": round(clamp_number(raw.get("thinkingBudget"), 128, 32768, 2048)),
+        "reasoningEffort": raw.get("reasoningEffort")
+        if raw.get("reasoningEffort") in {"low", "medium", "high", "max"}
+        else "high",
+    }
+
+
+def clamp_number(value, minimum, maximum, fallback):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return min(maximum, max(minimum, number))
+
+
+def normalize_base_url(value):
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Base URL must start with http or https")
+    return str(value).rstrip("/")
+
+
+def relay_openai_compatible_stream(response, handler):
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        if data.get("error"):
+            handler.write_sse(
+                "error",
+                {
+                    "message": data["error"].get("message") or "Upstream error",
+                    "details": data["error"],
+                },
+            )
+            continue
+        choices = data.get("choices") or []
+        choice = choices[0] if choices else {}
+        delta = choice.get("delta") or {}
+        message = choice.get("message") or {}
+        reasoning = delta.get("reasoning_content") or delta.get("reasoning") or message.get("reasoning_content")
+        content = delta.get("content") if "content" in delta else message.get("content")
+        if isinstance(reasoning, str) and reasoning:
+            handler.write_sse("reasoning", {"text": reasoning})
+        if isinstance(content, str) and content:
+            handler.write_sse("token", {"text": content})
+        if data.get("usage"):
+            handler.write_sse("usage", data["usage"])
+
+
+def relay_anthropic_stream(response, handler):
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        if data.get("type") == "error":
+            handler.write_sse(
+                "error",
+                {"message": (data.get("error") or {}).get("message") or "Anthropic stream error"},
+            )
+            continue
+        if data.get("type") == "content_block_delta":
+            delta = data.get("delta") or {}
+            if isinstance(delta.get("thinking"), str) and delta["thinking"]:
+                handler.write_sse("reasoning", {"text": delta["thinking"]})
+            if isinstance(delta.get("text"), str) and delta["text"]:
+                handler.write_sse("token", {"text": delta["text"]})
+        if data.get("type") == "message_delta" and data.get("usage"):
+            handler.write_sse("usage", data["usage"])
+
+
+def relay_gemini_stream(response, handler):
+    for event in iter_sse(response):
+        data = parse_json(event["data"])
+        if not data:
+            continue
+        if data.get("error"):
+            handler.write_sse(
+                "error",
+                {
+                    "message": data["error"].get("message") or "Gemini stream error",
+                    "details": data["error"],
+                },
+            )
+            continue
+        for candidate in data.get("candidates") or []:
+            content = candidate.get("content") or {}
+            for part in content.get("parts") or []:
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    handler.write_sse("reasoning" if part.get("thought") else "token", {"text": text})
+        if data.get("usageMetadata"):
+            handler.write_sse("usage", data["usageMetadata"])
+
+
+def iter_sse(response):
+    buffer = ""
+    while True:
+        chunk = response.read(4096)
+        if not chunk:
+            break
+        buffer += chunk.decode("utf-8", "replace")
+        frames = buffer.replace("\r\n", "\n").split("\n\n")
+        buffer = frames.pop()
+        for frame in frames:
+            event = parse_sse_frame(frame)
+            if event and event["data"] != "[DONE]":
+                yield event
+    if buffer.strip():
+        event = parse_sse_frame(buffer)
+        if event and event["data"] != "[DONE]":
+            yield event
+
+
+def parse_sse_frame(frame):
+    event = "message"
+    data = []
+    for line in frame.splitlines():
+        if line.startswith("event:"):
+            event = line[6:].strip()
+        elif line.startswith("data:"):
+            data.append(line[5:].lstrip())
+    if not data:
+        return None
+    return {"event": event, "data": "\n".join(data)}
+
+
+def parse_json(value):
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
+
+
+def iso_now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def main():
+    port = int(os.environ.get("PORT", "3000"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    print(f"LLM API Test Studio running at http://0.0.0.0:{port}", flush=True)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
