@@ -1,9 +1,10 @@
 const elements = {
   providerSelect: document.querySelector("#providerSelect"),
   modelInput: document.querySelector("#modelInput"),
-  modelOptions: document.querySelector("#modelOptions"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
+  refreshModels: document.querySelector("#refreshModels"),
+  modelStatus: document.querySelector("#modelStatus"),
   temperatureInput: document.querySelector("#temperatureInput"),
   temperatureValue: document.querySelector("#temperatureValue"),
   topPInput: document.querySelector("#topPInput"),
@@ -25,7 +26,11 @@ const elements = {
   runStatus: document.querySelector("#runStatus"),
   sessionTitle: document.querySelector("#sessionTitle"),
   dryRunBenchmark: document.querySelector("#dryRunBenchmark"),
+  languageToggle: document.querySelector("#languageToggle"),
+  brandSubtitle: document.querySelector("#brandSubtitle"),
   navItems: document.querySelectorAll(".nav-item"),
+  translatable: document.querySelectorAll("[data-i18n]"),
+  promptChips: document.querySelectorAll(".prompt-chip"),
   views: {
     chat: document.querySelector("#chatView"),
     benchmarks: document.querySelector("#benchmarksView"),
@@ -33,46 +38,180 @@ const elements = {
   }
 };
 
+const translations = {
+  en: {
+    brandSubtitle: "LLM Gateway Lab",
+    navChat: "Chat",
+    navBenchmark: "Benchmark",
+    navProviders: "Providers",
+    providerRail: "Providers",
+    chatEyebrow: "Streaming Console",
+    clear: "Clear",
+    stop: "Stop",
+    send: "Send",
+    benchmarkEyebrow: "Evaluation",
+    benchmarkTitle: "Benchmark Framework",
+    dryRun: "Dry run",
+    registryEyebrow: "Registry",
+    providerTitle: "Provider Matrix",
+    runtime: "Runtime",
+    modelSettings: "Model Settings",
+    provider: "Provider",
+    model: "Model",
+    refreshModels: "Refresh",
+    endpoint: "Endpoint",
+    temperature: "Temperature",
+    maxTokens: "Max tokens",
+    thinkBudget: "Think budget",
+    showReasoning: "Show reasoning stream",
+    systemPrompt: "System prompt",
+    providerDocs: "Provider docs",
+    ready: "Ready",
+    connecting: "Connecting",
+    stopped: "Stopped",
+    error: "Error",
+    done: "Done",
+    promptEmpty: "Prompt is empty",
+    apiKeyRequired: "API key is required",
+    loadFailed: "Load failed",
+    modelRefreshIdle: "Using bundled model list",
+    modelRefreshNeedKey: "Add an API key, then refresh latest models",
+    modelRefreshReady: "Refresh to load the latest supported models",
+    modelRefreshing: "Refreshing models",
+    modelRefreshDone: "Live model list loaded",
+    modelRefreshError: "Model refresh failed",
+    fallbackApplied: "Fallback models are still selectable",
+    promptPlaceholder: "Message the selected model",
+    systemPlaceholder: "You are a helpful assistant.",
+    emptyTitle: "Start a new chat",
+    emptyBody: "Select a provider, choose a model, and send a prompt.",
+    you: "You",
+    modelRole: "Model",
+    reasoning: "Reasoning",
+    promptIntroLabel: "Model intro",
+    promptReasoningLabel: "Reasoning test",
+    promptSplitLabel: "Task split",
+    promptIntro: "Introduce the positioning of your current model in three sentences.",
+    promptReasoning: "Give me a short reasoning test question and answer it.",
+    promptSplit: "Split the following requirement into backend, frontend, and testing tasks:",
+    benchmarkFailed: "Benchmark failed",
+    benchmarkQueued: "Benchmark dry run queued"
+  },
+  zh: {
+    brandSubtitle: "大模型 API 工作台",
+    navChat: "聊天",
+    navBenchmark: "评测",
+    navProviders: "厂商",
+    providerRail: "模型厂商",
+    chatEyebrow: "流式控制台",
+    clear: "清空",
+    stop: "停止",
+    send: "发送",
+    benchmarkEyebrow: "评测",
+    benchmarkTitle: "Benchmark 框架",
+    dryRun: "试运行",
+    registryEyebrow: "注册表",
+    providerTitle: "厂商矩阵",
+    runtime: "运行时",
+    modelSettings: "模型设置",
+    provider: "厂商",
+    model: "模型",
+    refreshModels: "刷新",
+    endpoint: "接口地址",
+    temperature: "温度",
+    maxTokens: "最大 tokens",
+    thinkBudget: "思考预算",
+    showReasoning: "展示思考流",
+    systemPrompt: "系统提示词",
+    providerDocs: "厂商文档",
+    ready: "就绪",
+    connecting: "连接中",
+    stopped: "已停止",
+    error: "错误",
+    done: "完成",
+    promptEmpty: "请输入消息",
+    apiKeyRequired: "需要 API Key",
+    loadFailed: "加载失败",
+    modelRefreshIdle: "正在使用内置模型列表",
+    modelRefreshNeedKey: "填入 API Key 后可刷新最新模型",
+    modelRefreshReady: "点击刷新加载最新支持模型",
+    modelRefreshing: "正在刷新模型",
+    modelRefreshDone: "已加载实时模型列表",
+    modelRefreshError: "模型刷新失败",
+    fallbackApplied: "仍可使用内置模型列表",
+    promptPlaceholder: "向选中的模型发送消息",
+    systemPlaceholder: "You are a helpful assistant.",
+    emptyTitle: "开始新对话",
+    emptyBody: "选择厂商和模型，然后发送 prompt。",
+    you: "你",
+    modelRole: "模型",
+    reasoning: "思考过程",
+    promptIntroLabel: "模型介绍",
+    promptReasoningLabel: "推理测试",
+    promptSplitLabel: "任务拆解",
+    promptIntro: "用三句话介绍一下你当前模型的定位。",
+    promptReasoning: "给我一个用于测试推理能力的简短题目，并回答。",
+    promptSplit: "把下面这段需求拆成后端、前端、测试三个任务：",
+    benchmarkFailed: "Benchmark 失败",
+    benchmarkQueued: "Benchmark 试运行已排队"
+  }
+};
+
 const state = {
+  language: localStorage.getItem("apiStudioLanguage") || "zh",
   providers: [],
   benchmarks: [],
   messages: [],
+  modelLists: {},
   activeProvider: null,
   abortController: null,
-  busy: false
+  busy: false,
+  modelBusy: false
 };
 
 init();
 
 async function init() {
   bindEvents();
+  applyLanguage();
   renderMessages();
   try {
     const response = await fetch("/api/providers");
     const data = await response.json();
     state.providers = data.providers || [];
     state.benchmarks = data.benchmarks || [];
+    state.providers.forEach((provider) => {
+      state.modelLists[provider.id] = normalizeModelOptions(provider.models);
+    });
     renderProviders();
     renderBenchmarks();
     setProvider(state.providers[0]?.id);
-    setStatus("Ready");
+    setStatus(t("ready"));
   } catch (error) {
-    setStatus(`Load failed: ${error.message}`);
+    setStatus(`${t("loadFailed")}: ${error.message}`);
   }
 }
 
 function bindEvents() {
   elements.providerSelect.addEventListener("change", () => setProvider(elements.providerSelect.value));
+  elements.modelInput.addEventListener("change", updateSessionTitle);
+  elements.refreshModels.addEventListener("click", refreshModels);
+  elements.apiKeyInput.addEventListener("change", () => {
+    if (elements.apiKeyInput.value.trim()) {
+      setModelStatus(t("modelRefreshReady"), false);
+    }
+  });
   elements.temperatureInput.addEventListener("input", syncSliderLabels);
   elements.topPInput.addEventListener("input", syncSliderLabels);
   elements.chatForm.addEventListener("submit", submitChat);
   elements.stopStream.addEventListener("click", stopStream);
   elements.clearChat.addEventListener("click", clearChat);
   elements.dryRunBenchmark.addEventListener("click", dryRunBenchmark);
+  elements.languageToggle.addEventListener("click", toggleLanguage);
 
-  document.querySelectorAll(".prompt-chip").forEach((button) => {
+  elements.promptChips.forEach((button) => {
     button.addEventListener("click", () => {
-      elements.promptInput.value = button.dataset.prompt || "";
+      elements.promptInput.value = t(button.dataset.promptKey || "");
       elements.promptInput.focus();
     });
   });
@@ -88,6 +227,42 @@ function bindEvents() {
   });
 }
 
+function applyLanguage() {
+  document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
+  elements.languageToggle.textContent = state.language === "zh" ? "EN" : "中文";
+  elements.brandSubtitle.textContent = t("brandSubtitle");
+  elements.promptInput.placeholder = t("promptPlaceholder");
+  elements.systemPromptInput.placeholder = t("systemPlaceholder");
+
+  elements.translatable.forEach((element) => {
+    const key = element.dataset.i18n;
+    if (key) {
+      element.textContent = t(key);
+    }
+  });
+
+  elements.promptChips.forEach((button) => {
+    const key = `${button.dataset.promptKey}Label`;
+    button.textContent = t(key);
+  });
+
+  if (!state.busy) {
+    setStatus(t("ready"));
+  }
+  if (state.activeProvider) {
+    setModelStatus(modelStatusForProvider(), false);
+  }
+  renderMessages();
+}
+
+function toggleLanguage() {
+  state.language = state.language === "zh" ? "en" : "zh";
+  localStorage.setItem("apiStudioLanguage", state.language);
+  applyLanguage();
+  renderProviders();
+  renderBenchmarks();
+}
+
 function renderProviders() {
   elements.providerSelect.innerHTML = state.providers
     .map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name)}</option>`)
@@ -98,7 +273,7 @@ function renderProviders() {
       (provider) => `
         <button class="provider-pill" data-provider="${escapeHtml(provider.id)}" type="button">
           <span>${escapeHtml(provider.name)}</span>
-          <small>${escapeHtml(provider.adapter.replace("-compatible", ""))}</small>
+          <small>${escapeHtml(capabilityLabel(provider))}</small>
         </button>
       `
     )
@@ -124,6 +299,11 @@ function renderProviders() {
       `
     )
     .join("");
+
+  if (state.activeProvider) {
+    elements.providerSelect.value = state.activeProvider.id;
+    markActiveProvider();
+  }
 }
 
 function renderBenchmarks() {
@@ -131,6 +311,7 @@ function renderBenchmarks() {
     .map(
       (benchmark) => `
         <article class="benchmark-item">
+          <div class="card-kicker">${escapeHtml(benchmark.status || "planned")}</div>
           <h3>${escapeHtml(benchmark.name)}</h3>
           <p>${escapeHtml(benchmark.description)}</p>
           <div class="tag-row">
@@ -150,18 +331,67 @@ function setProvider(providerId) {
 
   state.activeProvider = provider;
   elements.providerSelect.value = provider.id;
-  elements.modelInput.value = provider.defaultModel;
   elements.baseUrlInput.value = provider.baseUrl;
   elements.docsLink.href = provider.docs;
-  elements.modelOptions.innerHTML = provider.models
-    .map((model) => `<option value="${escapeHtml(model)}"></option>`)
+  renderModelOptions(provider.id, provider.defaultModel);
+  markActiveProvider();
+  updateSessionTitle();
+  setModelStatus(modelStatusForProvider(), false);
+}
+
+function renderModelOptions(providerId, selectedModel) {
+  const provider = state.providers.find((item) => item.id === providerId);
+  const models = state.modelLists[providerId] || normalizeModelOptions(provider?.models || []);
+  const preferred = selectedModel || elements.modelInput.value || provider?.defaultModel || models[0]?.id || "";
+  const hasPreferred = models.some((model) => model.id === preferred);
+  const finalModels = hasPreferred || !preferred ? models : [{ id: preferred, name: preferred }, ...models];
+
+  elements.modelInput.innerHTML = finalModels
+    .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
     .join("");
+  elements.modelInput.value = preferred;
+}
 
-  document.querySelectorAll(".provider-pill").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.provider === provider.id);
-  });
+async function refreshModels() {
+  if (!state.activeProvider || state.modelBusy) {
+    return;
+  }
 
-  elements.sessionTitle.textContent = `${provider.name} · ${provider.defaultModel}`;
+  state.modelBusy = true;
+  elements.refreshModels.disabled = true;
+  setModelStatus(`${t("modelRefreshing")}...`, false);
+
+  try {
+    const response = await fetch("/api/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: state.activeProvider.id,
+        apiKey: elements.apiKeyInput.value.trim(),
+        baseUrl: elements.baseUrlInput.value.trim()
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (data.fallbackModels?.length) {
+        state.modelLists[state.activeProvider.id] = normalizeModelOptions(data.fallbackModels);
+        renderModelOptions(state.activeProvider.id, state.activeProvider.defaultModel);
+      }
+      setModelStatus(`${t("modelRefreshError")}: ${formatErrorPayload(data)}. ${t("fallbackApplied")}`, true);
+      return;
+    }
+
+    state.modelLists[state.activeProvider.id] = normalizeModelOptions(data.models || []);
+    renderModelOptions(state.activeProvider.id, elements.modelInput.value || state.activeProvider.defaultModel);
+    updateSessionTitle();
+    setModelStatus(`${t("modelRefreshDone")} · ${state.modelLists[state.activeProvider.id].length}`, false);
+  } catch (error) {
+    setModelStatus(`${t("modelRefreshError")}: ${error.message}`, true);
+  } finally {
+    state.modelBusy = false;
+    elements.refreshModels.disabled = false;
+  }
 }
 
 function switchView(viewName) {
@@ -181,12 +411,12 @@ async function submitChat(event) {
 
   const prompt = elements.promptInput.value.trim();
   if (!prompt) {
-    setStatus("Prompt is empty");
+    setStatus(t("promptEmpty"));
     return;
   }
 
   if (!elements.apiKeyInput.value.trim()) {
-    setStatus("API key is required");
+    setStatus(t("apiKeyRequired"));
     elements.apiKeyInput.focus();
     return;
   }
@@ -197,7 +427,7 @@ async function submitChat(event) {
   elements.promptInput.value = "";
   renderMessages();
   setBusy(true);
-  setStatus("Connecting");
+  setStatus(t("connecting"));
 
   state.abortController = new AbortController();
 
@@ -211,7 +441,7 @@ async function submitChat(event) {
 
     if (!response.ok || !response.body) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(error.error || "Request failed");
+      throw new Error(formatErrorPayload(error) || "Request failed");
     }
 
     await readEventStream(response.body, (eventName, data) => {
@@ -231,24 +461,24 @@ async function submitChat(event) {
         renderMessages();
       }
       if (eventName === "error") {
-        assistantMessage.content += `\n\n[Error] ${data.message || "Request failed"}`;
+        assistantMessage.content += `\n\n[${t("error")}] ${data.message || "Request failed"}`;
         if (data.details) {
-          assistantMessage.content += `\n${typeof data.details === "string" ? data.details : JSON.stringify(data.details)}`;
+          assistantMessage.content += `\n${typeof data.details === "string" ? data.details : JSON.stringify(data.details, null, 2)}`;
         }
         renderMessages();
-        setStatus("Error");
+        setStatus(t("error"));
       }
       if (eventName === "done") {
-        setStatus(`Done · ${data.totalMs}ms`);
+        setStatus(`${t("done")} · ${data.totalMs}ms`);
       }
     });
   } catch (error) {
     if (error.name !== "AbortError") {
-      assistantMessage.content += `\n\n[Error] ${error.message}`;
+      assistantMessage.content += `\n\n[${t("error")}] ${error.message}`;
       renderMessages();
-      setStatus("Error");
+      setStatus(t("error"));
     } else {
-      setStatus("Stopped");
+      setStatus(t("stopped"));
     }
   } finally {
     state.abortController = null;
@@ -327,8 +557,11 @@ function renderMessages() {
   if (!state.messages.length) {
     elements.messageList.innerHTML = `
       <div class="empty-state">
-        <strong>选择厂商，填入 API Key，然后开始测试。</strong>
-        <span>API Key 只随本次请求发送到本地代理，不写入磁盘。</span>
+        <div class="empty-card">
+          <span class="empty-mark">AI</span>
+          <strong>${escapeHtml(t("emptyTitle"))}</strong>
+          <span>${escapeHtml(t("emptyBody"))}</span>
+        </div>
       </div>
     `;
     return;
@@ -338,7 +571,7 @@ function renderMessages() {
     .map(
       (message) => `
         <article class="message ${escapeHtml(message.role)}">
-          <div class="message-role">${message.role === "user" ? "You" : "Model"}</div>
+          <div class="message-role">${message.role === "user" ? t("you") : t("modelRole")}</div>
           <div class="message-body">
             ${renderReasoning(message)}
             <div class="message-content">${renderMarkdown(message.content || "")}</div>
@@ -358,7 +591,7 @@ function renderReasoning(message) {
 
   return `
     <details class="reasoning-block" open>
-      <summary>Reasoning</summary>
+      <summary>${escapeHtml(t("reasoning"))}</summary>
       <div class="reasoning-content">${escapeHtml(message.reasoning)}</div>
     </details>
   `;
@@ -394,7 +627,7 @@ function clearChat() {
   }
   state.messages = [];
   renderMessages();
-  setStatus("Ready");
+  setStatus(t("ready"));
 }
 
 function stopStream() {
@@ -407,10 +640,10 @@ async function dryRunBenchmark() {
   try {
     const response = await fetch("/api/benchmarks/run", { method: "POST" });
     const data = await response.json();
-    setStatus(data.message || "Benchmark dry run queued");
+    setStatus(data.message || t("benchmarkQueued"));
     switchView("benchmarks");
   } catch (error) {
-    setStatus(`Benchmark failed: ${error.message}`);
+    setStatus(`${t("benchmarkFailed")}: ${error.message}`);
   }
 }
 
@@ -424,9 +657,78 @@ function setStatus(value) {
   elements.runStatus.textContent = value;
 }
 
+function setModelStatus(value, isError) {
+  elements.modelStatus.textContent = value || "";
+  elements.modelStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+function modelStatusForProvider() {
+  if (!elements.apiKeyInput.value.trim() && state.activeProvider?.id !== "openrouter") {
+    return t("modelRefreshNeedKey");
+  }
+  return t("modelRefreshReady");
+}
+
 function syncSliderLabels() {
   elements.temperatureValue.value = elements.temperatureInput.value;
   elements.topPValue.value = elements.topPInput.value;
+}
+
+function updateSessionTitle() {
+  if (!state.activeProvider) {
+    return;
+  }
+  elements.sessionTitle.textContent = `${state.activeProvider.name} · ${elements.modelInput.value || state.activeProvider.defaultModel}`;
+}
+
+function markActiveProvider() {
+  document.querySelectorAll(".provider-pill").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.provider === state.activeProvider.id);
+  });
+}
+
+function normalizeModelOptions(models) {
+  return (models || [])
+    .map((model) => {
+      if (typeof model === "string") {
+        return { id: model, name: model };
+      }
+      return {
+        id: String(model.id || model.name || "").trim(),
+        name: String(model.name || model.displayName || model.id || "").trim(),
+        owner: model.owner,
+        created: model.created
+      };
+    })
+    .filter((model) => model.id);
+}
+
+function capabilityLabel(provider) {
+  if (provider.capabilities?.includes("gateway")) {
+    return "gateway";
+  }
+  if (provider.capabilities?.includes("multimodal")) {
+    return "multimodal";
+  }
+  if (provider.capabilities?.includes("thinking")) {
+    return "reasoning";
+  }
+  return provider.adapter.replace("-compatible", "");
+}
+
+function formatErrorPayload(payload) {
+  if (!payload) {
+    return "";
+  }
+  const details = typeof payload.details === "string" ? payload.details : JSON.stringify(payload.details || {});
+  return [payload.error, payload.status ? `status ${payload.status}` : "", details]
+    .filter(Boolean)
+    .join(" · ")
+    .slice(0, 900);
+}
+
+function t(key) {
+  return translations[state.language]?.[key] || translations.en[key] || key;
 }
 
 function escapeHtml(value) {

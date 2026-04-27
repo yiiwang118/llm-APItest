@@ -19,8 +19,8 @@ PROVIDERS = [
         "name": "OpenAI",
         "adapter": "openai-compatible",
         "baseUrl": "https://api.openai.com/v1",
-        "defaultModel": "gpt-5.2",
-        "models": ["gpt-5.2", "gpt-5.1", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
+        "defaultModel": "gpt-5.5",
+        "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2"],
         "docs": "https://platform.openai.com/docs/api-reference/chat/create-chat-completion",
         "capabilities": ["stream", "text", "tools"],
     },
@@ -88,8 +88,8 @@ PROVIDERS = [
         "name": "Xiaomi MiMo",
         "adapter": "openai-compatible",
         "baseUrl": "https://api.xiaomimimo.com/v1",
-        "defaultModel": "mimo-v2-flash",
-        "models": ["mimo-v2-flash", "mimo-v2-pro", "mimo-v2-omni"],
+        "defaultModel": "MiMo-V2-Flash",
+        "models": ["MiMo-V2-Flash", "MiMo-V2-Pro", "MiMo-V2-Omni", "MiMo-V2-TTS"],
         "docs": "https://www.xiaomi-mimo-ai.com/",
         "thinkingMode": "thinking-object",
         "capabilities": ["stream", "text", "thinking", "multimodal"],
@@ -99,12 +99,14 @@ PROVIDERS = [
         "name": "MiniMax",
         "adapter": "openai-compatible",
         "baseUrl": "https://api.minimax.io/v1",
-        "defaultModel": "MiniMax-M2.5",
+        "defaultModel": "MiniMax-M2.7",
         "models": [
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
             "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
             "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
             "MiniMax-M2",
         ],
         "docs": "https://platform.minimax.io/docs/api-reference/text-chat",
@@ -132,9 +134,10 @@ PROVIDERS = [
         "name": "OpenRouter",
         "adapter": "openai-compatible",
         "baseUrl": "https://openrouter.ai/api/v1",
-        "defaultModel": "openai/gpt-5.2",
+        "defaultModel": "openai/gpt-5.5",
         "models": [
-            "openai/gpt-5.2",
+            "openai/gpt-5.5",
+            "openai/gpt-5.4",
             "anthropic/claude-sonnet-4.5",
             "google/gemini-2.5-pro",
             "deepseek/deepseek-v4-flash",
@@ -205,6 +208,9 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        if self.path == "/api/models":
+            self.handle_models()
+            return
         if self.path == "/api/benchmarks/run":
             self.send_json(
                 202,
@@ -227,6 +233,68 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def handle_models(self):
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+
+        provider = get_provider(payload.get("providerId"))
+        if not provider:
+            self.send_json(400, {"error": "Unknown provider"})
+            return
+
+        api_key = str(payload.get("apiKey") or "").strip()
+        base_url = str(payload.get("baseUrl") or provider["baseUrl"]).strip()
+
+        try:
+            upstream = build_models_request(provider, api_key, base_url)
+            request = Request(upstream["url"], headers=upstream["headers"], method="GET")
+            with urlopen(request, timeout=45) as response:
+                raw = response.read().decode("utf-8", "replace")
+            data = json.loads(raw or "{}")
+            models = normalize_model_list(provider, data)
+            if not models:
+                self.send_json(
+                    502,
+                    {
+                        "error": "Model list response did not contain selectable models",
+                        "details": data,
+                        "fallbackModels": provider.get("models", []),
+                    },
+                )
+                return
+            self.send_json(
+                200,
+                {
+                    "providerId": provider["id"],
+                    "source": "live",
+                    "models": models,
+                    "fallbackModels": provider.get("models", []),
+                },
+            )
+        except HTTPError as error:
+            details = error.read().decode("utf-8", "replace")
+            self.send_json(
+                error.code,
+                {
+                    "error": f"Upstream model list request failed with {error.code}",
+                    "status": error.code,
+                    "details": safe_parse_json(details),
+                    "fallbackModels": provider.get("models", []),
+                },
+            )
+        except (ValueError, json.JSONDecodeError, URLError, TimeoutError, OSError) as error:
+            self.send_json(
+                502,
+                {
+                    "error": "Failed to refresh model list",
+                    "details": str(error),
+                    "fallbackModels": provider.get("models", []),
+                },
+            )
 
     def read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -315,8 +383,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "details": details[:2000],
                 },
             )
-        except (URLError, TimeoutError, OSError) as error:
-            self.write_sse("error", {"message": str(error)})
+        except (ValueError, URLError, TimeoutError, OSError) as error:
+            self.write_sse("error", {"message": str(error), "details": str(error)})
 
     def write_sse(self, event, payload):
         data = json.dumps(payload, ensure_ascii=False)
@@ -361,6 +429,89 @@ def build_upstream_request(provider, payload):
     if provider["adapter"] == "gemini":
         return build_gemini_request(provider, payload)
     return build_openai_compatible_request(provider, payload)
+
+
+def build_models_request(provider, api_key, base_url):
+    base = normalize_base_url(base_url)
+    headers = {"Accept": "application/json"}
+
+    if provider["adapter"] == "anthropic":
+        if not api_key:
+            raise ValueError("API key is required to refresh Anthropic models")
+        headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+        return {"url": f"{base}/models", "headers": headers}
+
+    if provider["adapter"] == "gemini":
+        if not api_key:
+            raise ValueError("API key is required to refresh Gemini models")
+        return {"url": f"{base}/models?key={quote(api_key, safe='')}", "headers": headers}
+
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    elif provider["id"] != "openrouter":
+        raise ValueError("API key is required to refresh this provider's models")
+
+    headers.update(provider.get("extraHeaders", {}))
+    return {"url": f"{base}/models", "headers": headers}
+
+
+def normalize_model_list(provider, payload):
+    if provider["adapter"] == "gemini":
+        items = payload.get("models") if isinstance(payload, dict) else []
+        models = []
+        for item in items or []:
+            methods = item.get("supportedGenerationMethods") or []
+            if methods and "generateContent" not in methods and "streamGenerateContent" not in methods:
+                continue
+            raw_id = item.get("name") or item.get("id")
+            model_id = str(raw_id or "").removeprefix("models/").strip()
+            if model_id:
+                models.append(
+                    {
+                        "id": model_id,
+                        "name": item.get("displayName") or model_id,
+                        "created": item.get("version"),
+                        "owner": "google",
+                    }
+                )
+        return dedupe_models(models)
+
+    items = []
+    if isinstance(payload, dict):
+        if isinstance(payload.get("data"), list):
+            items = payload["data"]
+        elif isinstance(payload.get("models"), list):
+            items = payload["models"]
+        elif isinstance(payload.get("result"), list):
+            items = payload["result"]
+
+    models = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or item.get("name") or item.get("model") or "").strip()
+        if not model_id:
+            continue
+        models.append(
+            {
+                "id": model_id,
+                "name": item.get("display_name") or item.get("displayName") or model_id,
+                "created": item.get("created") or item.get("created_at"),
+                "owner": item.get("owned_by") or item.get("owner"),
+            }
+        )
+    return dedupe_models(models)
+
+
+def dedupe_models(models):
+    seen = set()
+    unique = []
+    for model in models:
+        if model["id"] in seen:
+            continue
+        seen.add(model["id"])
+        unique.append(model)
+    return sorted(unique, key=lambda item: str(item["id"]).lower())
 
 
 def build_openai_compatible_request(provider, payload):
@@ -608,6 +759,13 @@ def parse_json(value):
         return json.loads(value)
     except json.JSONDecodeError:
         return None
+
+
+def safe_parse_json(value):
+    parsed = parse_json(value)
+    if parsed is not None:
+        return parsed
+    return value[:4000]
 
 
 def iso_now():

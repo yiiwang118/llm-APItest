@@ -6,7 +6,9 @@
 
 - 支持 OpenAI、Anthropic、Google Gemini、智谱 GLM、Qwen / DashScope、DeepSeek、小米 MiMo、MiniMax、SiliconFlow、OpenRouter。
 - 后端统一代理不同厂商的流式接口，前端按 `token`、`reasoning`、`usage` 标准事件渲染。
+- 模型列表支持按厂商动态刷新；如果厂商接口失败，页面会展示上游状态码和响应内容，并保留内置模型列表可选。
 - API Key 不写入本地文件，只随当前请求发送到后端代理。
+- 前端支持中文/英文界面切换。
 - 预留 benchmark 模块：延迟、质量、推理、自定义数据集四类指标框架。
 - 无构建步骤，无第三方依赖，服务器有 Python 3.10+ 即可直接运行。
 
