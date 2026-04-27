@@ -41,11 +41,11 @@ const elements = {
 const translations = {
   en: {
     brandSubtitle: "LLM Gateway Lab",
-    navChat: "Chat",
+    navChat: "Playground",
     navBenchmark: "Benchmark",
     navProviders: "Providers",
     providerRail: "Providers",
-    chatEyebrow: "Streaming Console",
+    chatEyebrow: "Playground",
     clear: "Clear",
     stop: "Stop",
     send: "Send",
@@ -55,7 +55,7 @@ const translations = {
     registryEyebrow: "Registry",
     providerTitle: "Provider Matrix",
     runtime: "Runtime",
-    modelSettings: "Model Settings",
+    modelSettings: "Run settings",
     provider: "Provider",
     model: "Model",
     refreshModels: "Refresh",
@@ -83,8 +83,8 @@ const translations = {
     fallbackApplied: "Fallback models are still selectable",
     promptPlaceholder: "Message the selected model",
     systemPlaceholder: "You are a helpful assistant.",
-    emptyTitle: "Start a new chat",
-    emptyBody: "Select a provider, choose a model, and send a prompt.",
+    emptyTitle: "Explore models",
+    emptyBody: "Select a provider, choose a model, and start testing from the prompt box below.",
     you: "You",
     modelRole: "Model",
     reasoning: "Reasoning",
@@ -99,11 +99,11 @@ const translations = {
   },
   zh: {
     brandSubtitle: "大模型 API 工作台",
-    navChat: "聊天",
+    navChat: "Playground",
     navBenchmark: "评测",
     navProviders: "厂商",
     providerRail: "模型厂商",
-    chatEyebrow: "流式控制台",
+    chatEyebrow: "Playground",
     clear: "清空",
     stop: "停止",
     send: "发送",
@@ -113,7 +113,7 @@ const translations = {
     registryEyebrow: "注册表",
     providerTitle: "厂商矩阵",
     runtime: "运行时",
-    modelSettings: "模型设置",
+    modelSettings: "Run settings",
     provider: "厂商",
     model: "模型",
     refreshModels: "刷新",
@@ -122,7 +122,7 @@ const translations = {
     maxTokens: "最大 tokens",
     thinkBudget: "思考预算",
     showReasoning: "展示思考流",
-    systemPrompt: "系统提示词",
+    systemPrompt: "System instructions",
     providerDocs: "厂商文档",
     ready: "就绪",
     connecting: "连接中",
@@ -141,8 +141,8 @@ const translations = {
     fallbackApplied: "仍可使用内置模型列表",
     promptPlaceholder: "向选中的模型发送消息",
     systemPlaceholder: "You are a helpful assistant.",
-    emptyTitle: "开始新对话",
-    emptyBody: "选择厂商和模型，然后发送 prompt。",
+    emptyTitle: "Explore models",
+    emptyBody: "选择厂商和模型，然后从下方输入框开始测试。",
     you: "你",
     modelRole: "模型",
     reasoning: "思考过程",
@@ -233,6 +233,7 @@ function applyLanguage() {
   elements.brandSubtitle.textContent = t("brandSubtitle");
   elements.promptInput.placeholder = t("promptPlaceholder");
   elements.systemPromptInput.placeholder = t("systemPlaceholder");
+  elements.sessionTitle.textContent = t("chatEyebrow");
 
   elements.translatable.forEach((element) => {
     const key = element.dataset.i18n;
@@ -558,7 +559,6 @@ function renderMessages() {
     elements.messageList.innerHTML = `
       <div class="empty-state">
         <div class="empty-card">
-          <span class="empty-mark">AI</span>
           <strong>${escapeHtml(t("emptyTitle"))}</strong>
           <span>${escapeHtml(t("emptyBody"))}</span>
         </div>
@@ -675,10 +675,7 @@ function syncSliderLabels() {
 }
 
 function updateSessionTitle() {
-  if (!state.activeProvider) {
-    return;
-  }
-  elements.sessionTitle.textContent = `${state.activeProvider.name} · ${elements.modelInput.value || state.activeProvider.defaultModel}`;
+  elements.sessionTitle.textContent = t("chatEyebrow");
 }
 
 function markActiveProvider() {

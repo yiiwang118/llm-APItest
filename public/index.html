@@ -10,7 +10,6 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary">
         <div class="brand">
-          <span class="brand-mark">A</span>
           <div>
             <strong>AI Studio</strong>
             <span id="brandSubtitle">LLM Gateway Lab</span>
@@ -41,10 +40,7 @@
       <main class="workspace">
         <section id="chatView" class="view view-chat">
           <header class="workspace-topbar">
-            <div>
-              <div class="eyebrow" data-i18n="chatEyebrow">Streaming Console</div>
-              <h1 id="sessionTitle">New chat</h1>
-            </div>
+            <h1 id="sessionTitle">Playground</h1>
             <div class="topbar-actions">
               <button id="languageToggle" class="ghost-button" type="button">中文</button>
               <button id="clearChat" class="ghost-button" type="button" data-i18n="clear">Clear</button>
@@ -93,76 +89,83 @@
 
       <aside class="settings-panel">
         <div class="panel-header">
-          <div>
-            <span class="eyebrow" data-i18n="runtime">Runtime</span>
-            <h2 data-i18n="modelSettings">Model Settings</h2>
+          <h2 data-i18n="modelSettings">Run settings</h2>
+        </div>
+
+        <section class="settings-card">
+          <div class="settings-card-head">
+            <h3 data-i18n="model">Model</h3>
+            <span id="connectionBadge" class="status-badge">Live</span>
           </div>
-          <span id="connectionBadge" class="status-badge">Live</span>
-        </div>
 
-        <div class="field-group">
-          <label for="providerSelect" data-i18n="provider">Provider</label>
-          <select id="providerSelect"></select>
-        </div>
-
-        <div class="field-group">
-          <div class="field-label-row">
-            <label for="modelInput" data-i18n="model">Model</label>
-            <button id="refreshModels" class="mini-button" type="button" data-i18n="refreshModels">Refresh</button>
-          </div>
-          <select id="modelInput"></select>
-          <div id="modelStatus" class="field-note"></div>
-        </div>
-
-        <div class="field-group">
-          <label for="apiKeyInput">API Key</label>
-          <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
-        </div>
-
-        <details class="advanced" open>
-          <summary data-i18n="endpoint">Endpoint</summary>
           <div class="field-group">
-            <label for="baseUrlInput">Base URL</label>
-            <input id="baseUrlInput" autocomplete="off" />
+            <label for="providerSelect" data-i18n="provider">Provider</label>
+            <select id="providerSelect"></select>
           </div>
-        </details>
 
-        <div class="slider-group">
-          <div class="slider-head">
-            <label for="temperatureInput" data-i18n="temperature">Temperature</label>
-            <output id="temperatureValue">0.7</output>
-          </div>
-          <input id="temperatureInput" type="range" min="0" max="2" step="0.1" value="0.7" />
-        </div>
-
-        <div class="slider-group">
-          <div class="slider-head">
-            <label for="topPInput">Top P</label>
-            <output id="topPValue">0.9</output>
-          </div>
-          <input id="topPInput" type="range" min="0" max="1" step="0.05" value="0.9" />
-        </div>
-
-        <div class="field-row">
           <div class="field-group">
-            <label for="maxTokensInput" data-i18n="maxTokens">Max tokens</label>
-            <input id="maxTokensInput" type="number" min="128" max="32768" step="128" value="2048" />
+            <div class="field-label-row">
+              <label for="modelInput" data-i18n="model">Model</label>
+              <button id="refreshModels" class="mini-button" type="button" data-i18n="refreshModels">Refresh</button>
+            </div>
+            <select id="modelInput"></select>
+            <div id="modelStatus" class="field-note"></div>
           </div>
+
           <div class="field-group">
-            <label for="thinkingBudgetInput" data-i18n="thinkBudget">Think budget</label>
-            <input id="thinkingBudgetInput" type="number" min="128" max="32768" step="128" value="2048" />
+            <label for="apiKeyInput">API Key</label>
+            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
           </div>
-        </div>
 
-        <label class="toggle-row">
-          <input id="thinkingToggle" type="checkbox" />
-          <span data-i18n="showReasoning">Show reasoning stream</span>
-        </label>
+          <details class="advanced">
+            <summary data-i18n="endpoint">Endpoint</summary>
+            <div class="field-group">
+              <label for="baseUrlInput">Base URL</label>
+              <input id="baseUrlInput" autocomplete="off" />
+            </div>
+          </details>
+        </section>
 
-        <div class="field-group fill">
-          <label for="systemPromptInput" data-i18n="systemPrompt">System prompt</label>
-          <textarea id="systemPromptInput" rows="6" placeholder="You are a helpful assistant."></textarea>
-        </div>
+        <section class="settings-card">
+          <h3 data-i18n="systemPrompt">System instructions</h3>
+          <div class="field-group fill">
+            <textarea id="systemPromptInput" rows="5" placeholder="You are a helpful assistant."></textarea>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="slider-group">
+            <div class="slider-head">
+              <label for="temperatureInput" data-i18n="temperature">Temperature</label>
+              <output id="temperatureValue">0.7</output>
+            </div>
+            <input id="temperatureInput" type="range" min="0" max="2" step="0.1" value="0.7" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-head">
+              <label for="topPInput">Top P</label>
+              <output id="topPValue">0.9</output>
+            </div>
+            <input id="topPInput" type="range" min="0" max="1" step="0.05" value="0.9" />
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label for="maxTokensInput" data-i18n="maxTokens">Max tokens</label>
+              <input id="maxTokensInput" type="number" min="128" max="32768" step="128" value="2048" />
+            </div>
+            <div class="field-group">
+              <label for="thinkingBudgetInput" data-i18n="thinkBudget">Think budget</label>
+              <input id="thinkingBudgetInput" type="number" min="128" max="32768" step="128" value="2048" />
+            </div>
+          </div>
+
+          <label class="toggle-row">
+            <input id="thinkingToggle" type="checkbox" />
+            <span data-i18n="showReasoning">Show reasoning stream</span>
+          </label>
+        </section>
 
         <div class="docs-link">
           <a id="docsLink" href="#" target="_blank" rel="noreferrer" data-i18n="providerDocs">Provider docs</a>
