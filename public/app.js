@@ -763,7 +763,7 @@ function addBenchTarget(seed) {
   const provider = state.providers.find((p) => p.id === seed?.providerId) || state.providers[0];
   if (!provider) return;
   const target = {
-    id: crypto.randomUUID(),
+    id: uuid(),
     providerId: provider.id,
     model: seed?.model || provider.defaultModel,
     apiKey: seed?.apiKey || state.apiKeys[provider.id] || "",
