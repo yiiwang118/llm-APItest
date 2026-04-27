@@ -151,9 +151,15 @@ PROVIDERS = [
         "adapter": "openai-compatible",
         "baseUrl": "https://api.deepseek.com",
         "defaultModel": "deepseek-v4-flash",
-        "models": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+        "models": [
+            {"id": "deepseek-v4-flash", "name": "deepseek-v4-flash"},
+            {"id": "deepseek-v4-pro", "name": "deepseek-v4-pro"},
+            {"id": "deepseek-chat", "name": "deepseek-chat (alias, deprecates 2026-07-24)"},
+            {"id": "deepseek-reasoner", "name": "deepseek-reasoner (alias, deprecates 2026-07-24)"},
+        ],
         "docs": "https://api-docs.deepseek.com/api/create-chat-completion",
         "thinkingMode": "thinking-object",
+        "reasoningEffortPlacement": "top-level",
         "capabilities": ["stream", "text", "thinking"],
     },
     {
@@ -460,6 +466,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         api_key = str(payload.get("apiKey") or "").strip()
         base_url = str(payload.get("baseUrl") or provider["baseUrl"]).strip()
+        fallback_models = normalize_configured_models(provider.get("models", []))
 
         try:
             upstream = build_models_request(provider, api_key, base_url)
@@ -467,24 +474,33 @@ class Handler(SimpleHTTPRequestHandler):
             with urlopen(request, timeout=45) as response:
                 raw = response.read().decode("utf-8", "replace")
             data = json.loads(raw or "{}")
-            models = normalize_model_list(provider, data)
-            if not models:
+            live_models = normalize_model_list(provider, data)
+            if not live_models:
                 self.send_json(
                     502,
                     {
                         "error": "Model list response did not contain selectable models",
                         "details": data,
-                        "fallbackModels": provider.get("models", []),
+                        "fallbackModels": fallback_models,
                     },
                 )
                 return
+            models = merge_model_lists(live_models, fallback_models)
+            live_ids = {model["id"] for model in live_models}
+            fallback_ids = {model["id"] for model in fallback_models}
             self.send_json(
                 200,
                 {
                     "providerId": provider["id"],
                     "source": "live",
                     "models": models,
-                    "fallbackModels": provider.get("models", []),
+                    "liveModels": live_models,
+                    "fallbackModels": fallback_models,
+                    "liveModelCount": len(live_models),
+                    "fallbackModelCount": len(fallback_models),
+                    "mergedModelCount": len(models),
+                    "newModelCount": len(live_ids - fallback_ids),
+                    "fallbackOnlyCount": len(fallback_ids - live_ids),
                 },
             )
         except HTTPError as error:
@@ -495,7 +511,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "error": f"Upstream model list request failed with {error.code}",
                     "status": error.code,
                     "details": safe_parse_json(details),
-                    "fallbackModels": provider.get("models", []),
+                    "fallbackModels": fallback_models,
                 },
             )
         except ValueError as error:
@@ -504,7 +520,7 @@ class Handler(SimpleHTTPRequestHandler):
                 {
                     "error": str(error),
                     "details": str(error),
-                    "fallbackModels": provider.get("models", []),
+                    "fallbackModels": fallback_models,
                 },
             )
         except (json.JSONDecodeError, URLError, TimeoutError, OSError) as error:
@@ -513,7 +529,7 @@ class Handler(SimpleHTTPRequestHandler):
                 {
                     "error": "Failed to refresh model list",
                     "details": str(error),
-                    "fallbackModels": provider.get("models", []),
+                    "fallbackModels": fallback_models,
                 },
             )
 
@@ -919,6 +935,34 @@ def dedupe_models(models):
     return sorted(unique, key=lambda item: str(item["id"]).lower())
 
 
+def normalize_configured_models(models):
+    normalized = []
+    for item in models or []:
+        if isinstance(item, str):
+            model_id = item.strip()
+            name = model_id
+        elif isinstance(item, dict):
+            model_id = str(item.get("id") or item.get("name") or "").strip()
+            name = str(item.get("name") or item.get("displayName") or model_id).strip()
+        else:
+            continue
+        if model_id:
+            normalized.append({"id": model_id, "name": name or model_id})
+    return dedupe_models(normalized)
+
+
+def merge_model_lists(live_models, fallback_models):
+    seen = set()
+    merged = []
+    for model in list(live_models or []) + list(fallback_models or []):
+        model_id = model.get("id")
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        merged.append(model)
+    return merged
+
+
 def openai_message_content(provider, message):
     attachments = message.get("attachments") or []
     if not attachments:
@@ -976,7 +1020,11 @@ def build_openai_compatible_request(provider, payload):
 
     if params["thinkingEnabled"]:
         if provider.get("thinkingMode") == "thinking-object":
-            body["thinking"] = {"type": "enabled", "reasoning_effort": params["reasoningEffort"]}
+            body["thinking"] = {"type": "enabled"}
+            if provider.get("reasoningEffortPlacement") == "top-level":
+                body["reasoning_effort"] = deepseek_reasoning_effort(params["reasoningEffort"])
+            elif provider.get("reasoningEffortPlacement") == "thinking-field":
+                body["thinking"]["reasoning_effort"] = params["reasoningEffort"]
         if provider.get("thinkingMode") == "enable-thinking":
             body["enable_thinking"] = True
             if params["thinkingBudget"] is not None:
@@ -1119,6 +1167,10 @@ def normalize_parameters(raw):
         if raw.get("reasoningEffort") in {"low", "medium", "high", "max"}
         else "high",
     }
+
+
+def deepseek_reasoning_effort(value):
+    return "max" if value == "max" else "high"
 
 
 def optional_token_limit(value, minimum):

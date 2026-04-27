@@ -110,6 +110,7 @@ const translations = {
     modelRefreshReady: "Refresh to load the latest supported models",
     modelRefreshing: "Refreshing models",
     modelRefreshDone: "Live model list loaded",
+    modelRefreshCounts: "live {live} · total {total} · new {added}",
     modelRefreshError: "Model refresh failed",
     fallbackApplied: "Fallback models are still selectable",
     promptPlaceholder: "Message the selected model",
@@ -185,6 +186,7 @@ const translations = {
     modelRefreshReady: "点击刷新加载最新支持模型",
     modelRefreshing: "正在刷新模型",
     modelRefreshDone: "已加载实时模型列表",
+    modelRefreshCounts: "实时 {live} · 合计 {total} · 新增 {added}",
     modelRefreshError: "模型刷新失败",
     fallbackApplied: "仍可使用内置模型列表",
     promptPlaceholder: "向选中的模型发送消息",
@@ -686,7 +688,7 @@ async function refreshModels(options = {}) {
     state.modelLists[state.activeProvider.id] = normalizeModelOptions(data.models || []);
     renderModelOptions(state.activeProvider.id, elements.modelInput.value || state.activeProvider.defaultModel);
     updateSessionTitle();
-    setModelStatus(`${t("modelRefreshDone")} · ${state.modelLists[state.activeProvider.id].length}`, false);
+    setModelStatus(`${t("modelRefreshDone")} · ${modelRefreshCounts(data, state.modelLists[state.activeProvider.id].length)}`, false);
   } catch (error) {
     setModelStatus(`${t("modelRefreshError")}: ${error.message}`, true);
   } finally {
@@ -1184,6 +1186,16 @@ function normalizeModelOptions(models) {
       };
     })
     .filter((model) => model.id);
+}
+
+function modelRefreshCounts(data, modelCount) {
+  const live = data.liveModelCount ?? data.liveModels?.length ?? modelCount;
+  const total = data.mergedModelCount ?? modelCount;
+  const added = data.newModelCount ?? 0;
+  return t("modelRefreshCounts")
+    .replace("{live}", live)
+    .replace("{total}", total)
+    .replace("{added}", added);
 }
 
 function capabilityLabel(provider) {
