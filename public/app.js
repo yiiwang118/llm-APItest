@@ -1,4 +1,9 @@
 const elements = {
+  authScreen: document.querySelector("#authScreen"),
+  appShell: document.querySelector("#appShell"),
+  loginForm: document.querySelector("#loginForm"),
+  loginUserInput: document.querySelector("#loginUserInput"),
+  loginError: document.querySelector("#loginError"),
   providerSelect: document.querySelector("#providerSelect"),
   modelInput: document.querySelector("#modelInput"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
@@ -22,12 +27,16 @@ const elements = {
   promptInput: document.querySelector("#promptInput"),
   sendButton: document.querySelector("#sendButton"),
   stopStream: document.querySelector("#stopStream"),
+  saveRecord: document.querySelector("#saveRecord"),
   clearChat: document.querySelector("#clearChat"),
   runStatus: document.querySelector("#runStatus"),
   sessionTitle: document.querySelector("#sessionTitle"),
   dryRunBenchmark: document.querySelector("#dryRunBenchmark"),
   languageToggle: document.querySelector("#languageToggle"),
   brandSubtitle: document.querySelector("#brandSubtitle"),
+  recordList: document.querySelector("#recordList"),
+  userBadge: document.querySelector("#userBadge"),
+  logoutButton: document.querySelector("#logoutButton"),
   navItems: document.querySelectorAll(".nav-item"),
   translatable: document.querySelectorAll("[data-i18n]"),
   promptChips: document.querySelectorAll(".prompt-chip"),
@@ -44,10 +53,21 @@ const translations = {
     navChat: "Playground",
     navBenchmark: "Benchmark",
     navProviders: "Providers",
+    history: "History",
     providerRail: "Providers",
     chatEyebrow: "Playground",
     clear: "Clear",
+    save: "Save",
+    saved: "Saved",
+    saveFailed: "Save failed",
     stop: "Stop",
+    logout: "Logout",
+    loginTitle: "Sign in",
+    loginUser: "User",
+    loginAction: "Continue",
+    loginFailed: "Sign in failed",
+    recordsEmpty: "No saved records",
+    deleteRecord: "Delete",
     send: "Send",
     benchmarkEyebrow: "Evaluation",
     benchmarkTitle: "Benchmark Framework",
@@ -64,7 +84,7 @@ const translations = {
     maxTokens: "Max tokens",
     thinkBudget: "Think budget",
     showReasoning: "Show reasoning stream",
-    systemPrompt: "System prompt",
+    systemPrompt: "System instructions",
     providerDocs: "Provider docs",
     ready: "Ready",
     connecting: "Connecting",
@@ -102,10 +122,21 @@ const translations = {
     navChat: "Playground",
     navBenchmark: "评测",
     navProviders: "厂商",
+    history: "历史记录",
     providerRail: "模型厂商",
     chatEyebrow: "Playground",
     clear: "清空",
+    save: "保存",
+    saved: "已保存",
+    saveFailed: "保存失败",
     stop: "停止",
+    logout: "退出",
+    loginTitle: "登录",
+    loginUser: "用户",
+    loginAction: "继续",
+    loginFailed: "登录失败",
+    recordsEmpty: "暂无保存记录",
+    deleteRecord: "删除",
     send: "发送",
     benchmarkEyebrow: "评测",
     benchmarkTitle: "Benchmark 框架",
@@ -161,9 +192,12 @@ const state = {
   language: localStorage.getItem("apiStudioLanguage") || "zh",
   providers: [],
   benchmarks: [],
+  records: [],
   messages: [],
   modelLists: {},
   activeProvider: null,
+  currentRecordId: null,
+  user: "",
   abortController: null,
   busy: false,
   modelBusy: false
@@ -175,16 +209,46 @@ async function init() {
   bindEvents();
   applyLanguage();
   renderMessages();
+  const session = await fetchSession();
+  if (!session.authenticated) {
+    showLogin();
+    return;
+  }
+  state.user = session.user;
+  showApp();
+  await loadAppData();
+}
+
+async function fetchSession() {
   try {
-    const response = await fetch("/api/providers");
-    const data = await response.json();
+    const response = await fetch("/api/session");
+    return await response.json();
+  } catch {
+    return { authenticated: false };
+  }
+}
+
+async function loadAppData() {
+  try {
+    const [providerResponse, recordResponse] = await Promise.all([
+      fetch("/api/providers"),
+      fetch("/api/records")
+    ]);
+    if (providerResponse.status === 401 || recordResponse.status === 401) {
+      showLogin();
+      return;
+    }
+    const data = await providerResponse.json();
+    const recordData = await recordResponse.json();
     state.providers = data.providers || [];
     state.benchmarks = data.benchmarks || [];
+    state.records = recordData.records || [];
     state.providers.forEach((provider) => {
       state.modelLists[provider.id] = normalizeModelOptions(provider.models);
     });
     renderProviders();
     renderBenchmarks();
+    renderRecords();
     setProvider(state.providers[0]?.id);
     setStatus(t("ready"));
   } catch (error) {
@@ -192,7 +256,20 @@ async function init() {
   }
 }
 
+function showLogin() {
+  elements.authScreen.classList.remove("is-hidden");
+  elements.appShell.classList.add("is-hidden");
+  elements.loginUserInput.focus();
+}
+
+function showApp() {
+  elements.authScreen.classList.add("is-hidden");
+  elements.appShell.classList.remove("is-hidden");
+  elements.userBadge.textContent = state.user;
+}
+
 function bindEvents() {
+  elements.loginForm.addEventListener("submit", login);
   elements.providerSelect.addEventListener("change", () => setProvider(elements.providerSelect.value));
   elements.modelInput.addEventListener("change", updateSessionTitle);
   elements.refreshModels.addEventListener("click", refreshModels);
@@ -205,9 +282,22 @@ function bindEvents() {
   elements.topPInput.addEventListener("input", syncSliderLabels);
   elements.chatForm.addEventListener("submit", submitChat);
   elements.stopStream.addEventListener("click", stopStream);
+  elements.saveRecord.addEventListener("click", () => saveCurrentRecord(false));
   elements.clearChat.addEventListener("click", clearChat);
   elements.dryRunBenchmark.addEventListener("click", dryRunBenchmark);
   elements.languageToggle.addEventListener("click", toggleLanguage);
+  elements.logoutButton.addEventListener("click", logout);
+  elements.recordList.addEventListener("click", (event) => {
+    const recordButton = event.target.closest("[data-record-id]");
+    const deleteButton = event.target.closest("[data-delete-record]");
+    if (deleteButton) {
+      deleteRecord(deleteButton.dataset.deleteRecord);
+      return;
+    }
+    if (recordButton) {
+      loadRecord(recordButton.dataset.recordId);
+    }
+  });
 
   elements.promptChips.forEach((button) => {
     button.addEventListener("click", () => {
@@ -225,6 +315,39 @@ function bindEvents() {
       elements.chatForm.requestSubmit();
     }
   });
+}
+
+async function login(event) {
+  event.preventDefault();
+  elements.loginError.textContent = "";
+  const user = elements.loginUserInput.value.trim();
+  try {
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      elements.loginError.textContent = `${t("loginFailed")}: ${data.error || response.statusText}`;
+      return;
+    }
+    state.user = data.user;
+    showApp();
+    await loadAppData();
+  } catch (error) {
+    elements.loginError.textContent = `${t("loginFailed")}: ${error.message}`;
+  }
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" }).catch(() => {});
+  state.user = "";
+  state.records = [];
+  state.currentRecordId = null;
+  state.messages = [];
+  renderMessages();
+  showLogin();
 }
 
 function applyLanguage() {
@@ -254,6 +377,7 @@ function applyLanguage() {
     setModelStatus(modelStatusForProvider(), false);
   }
   renderMessages();
+  renderRecords();
 }
 
 function toggleLanguage() {
@@ -305,6 +429,27 @@ function renderProviders() {
     elements.providerSelect.value = state.activeProvider.id;
     markActiveProvider();
   }
+}
+
+function renderRecords() {
+  if (!state.records.length) {
+    elements.recordList.innerHTML = `<div class="record-empty">${escapeHtml(t("recordsEmpty"))}</div>`;
+    return;
+  }
+
+  elements.recordList.innerHTML = state.records
+    .map(
+      (record) => `
+        <div class="record-item ${record.id === state.currentRecordId ? "is-active" : ""}">
+          <button class="record-open" type="button" data-record-id="${escapeHtml(record.id)}">
+            <span>${escapeHtml(record.title || "Untitled record")}</span>
+            <small>${escapeHtml(record.model || record.providerId || "")}</small>
+          </button>
+          <button class="record-delete" type="button" data-delete-record="${escapeHtml(record.id)}" title="${escapeHtml(t("deleteRecord"))}">×</button>
+        </div>
+      `
+    )
+    .join("");
 }
 
 function renderBenchmarks() {
@@ -395,6 +540,118 @@ async function refreshModels() {
   }
 }
 
+async function saveCurrentRecord(quiet) {
+  if (!state.messages.length) {
+    setStatus(t("promptEmpty"));
+    return;
+  }
+  try {
+    const response = await fetch("/api/records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildRecordPayload())
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || response.statusText);
+    }
+    state.currentRecordId = data.record.id;
+    const index = state.records.findIndex((record) => record.id === data.record.id);
+    if (index >= 0) {
+      state.records[index] = data.record;
+    } else {
+      state.records.unshift(data.record);
+    }
+    state.records.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+    renderRecords();
+    if (!quiet) {
+      setStatus(t("saved"));
+    }
+  } catch (error) {
+    setStatus(`${t("saveFailed")}: ${error.message}`);
+  }
+}
+
+function buildRecordPayload() {
+  return {
+    id: state.currentRecordId,
+    title: titleFromMessages(),
+    providerId: elements.providerSelect.value,
+    model: elements.modelInput.value.trim(),
+    baseUrl: elements.baseUrlInput.value.trim(),
+    systemPrompt: elements.systemPromptInput.value.trim(),
+    parameters: {
+      temperature: Number(elements.temperatureInput.value),
+      topP: Number(elements.topPInput.value),
+      maxTokens: Number(elements.maxTokensInput.value),
+      thinkingBudget: Number(elements.thinkingBudgetInput.value),
+      thinkingEnabled: elements.thinkingToggle.checked
+    },
+    messages: state.messages
+  };
+}
+
+function titleFromMessages() {
+  const firstUserMessage = state.messages.find((message) => message.role === "user" && message.content);
+  return (firstUserMessage?.content || "Untitled record").replace(/\s+/g, " ").slice(0, 72);
+}
+
+function loadRecord(recordId) {
+  const record = state.records.find((item) => item.id === recordId);
+  if (!record) {
+    return;
+  }
+  state.currentRecordId = record.id;
+  if (record.providerId) {
+    setProvider(record.providerId);
+  }
+  if (record.model) {
+    renderModelOptions(record.providerId || elements.providerSelect.value, record.model);
+  }
+  elements.baseUrlInput.value = record.baseUrl || elements.baseUrlInput.value;
+  elements.systemPromptInput.value = record.systemPrompt || "";
+  applyRecordParameters(record.parameters || {});
+  state.messages = Array.isArray(record.messages) ? record.messages : [];
+  renderMessages();
+  renderRecords();
+  switchView("chat");
+  setStatus(t("ready"));
+}
+
+function applyRecordParameters(parameters) {
+  if (parameters.temperature !== undefined) {
+    elements.temperatureInput.value = parameters.temperature;
+  }
+  if (parameters.topP !== undefined) {
+    elements.topPInput.value = parameters.topP;
+  }
+  if (parameters.maxTokens !== undefined) {
+    elements.maxTokensInput.value = parameters.maxTokens;
+  }
+  if (parameters.thinkingBudget !== undefined) {
+    elements.thinkingBudgetInput.value = parameters.thinkingBudget;
+  }
+  elements.thinkingToggle.checked = Boolean(parameters.thinkingEnabled);
+  syncSliderLabels();
+}
+
+async function deleteRecord(recordId) {
+  try {
+    const response = await fetch(`/api/records/${encodeURIComponent(recordId)}`, { method: "DELETE" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || response.statusText);
+    }
+    state.records = state.records.filter((record) => record.id !== recordId);
+    if (state.currentRecordId === recordId) {
+      state.currentRecordId = null;
+    }
+    renderRecords();
+  } catch (error) {
+    setStatus(`${t("saveFailed")}: ${error.message}`);
+  }
+}
+
 function switchView(viewName) {
   Object.entries(elements.views).forEach(([name, element]) => {
     element.classList.toggle("is-hidden", name !== viewName);
@@ -471,6 +728,9 @@ async function submitChat(event) {
       }
       if (eventName === "done") {
         setStatus(`${t("done")} · ${data.totalMs}ms`);
+        if (state.currentRecordId) {
+          saveCurrentRecord(true);
+        }
       }
     });
   } catch (error) {
@@ -626,7 +886,9 @@ function clearChat() {
     stopStream();
   }
   state.messages = [];
+  state.currentRecordId = null;
   renderMessages();
+  renderRecords();
   setStatus(t("ready"));
 }
 

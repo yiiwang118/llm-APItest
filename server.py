@@ -3,14 +3,27 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
+import threading
 import time
+import uuid
 
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC_DIR = ROOT / "public"
+DATA_DIR = ROOT / "data"
+RECORDS_FILE = DATA_DIR / "records.json"
+SESSION_SECRET_FILE = DATA_DIR / "session_secret"
 MAX_BODY_BYTES = 1024 * 1024
+ALLOWED_USER = "yiiwang"
+SESSION_COOKIE = "studio_session"
+SESSION_MAX_AGE = 60 * 60 * 24 * 14
+DATA_LOCK = threading.Lock()
 
 
 PROVIDERS = [
@@ -196,22 +209,48 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        if self.path == "/api/health":
+        path = urlparse(self.path).path
+        if path == "/api/health":
             self.send_json(200, {"ok": True, "name": "LLM API Test Studio"})
             return
-        if self.path == "/api/providers":
+        if path == "/api/session":
+            user = self.current_user()
+            self.send_json(200, {"authenticated": bool(user), "user": user})
+            return
+
+        if path.startswith("/api/") and not self.require_auth():
+            return
+
+        if path == "/api/providers":
             self.send_json(200, {"providers": public_providers(), "benchmarks": BENCHMARKS})
             return
-        if self.path == "/api/benchmarks":
+        if path == "/api/benchmarks":
             self.send_json(200, {"benchmarks": BENCHMARKS})
+            return
+        if path == "/api/records":
+            self.handle_records_list()
             return
         super().do_GET()
 
     def do_POST(self):
-        if self.path == "/api/models":
+        path = urlparse(self.path).path
+        if path == "/api/login":
+            self.handle_login()
+            return
+        if path == "/api/logout":
+            self.handle_logout()
+            return
+
+        if path.startswith("/api/") and not self.require_auth():
+            return
+
+        if path == "/api/models":
             self.handle_models()
             return
-        if self.path == "/api/benchmarks/run":
+        if path == "/api/records":
+            self.handle_record_save()
+            return
+        if path == "/api/benchmarks/run":
             self.send_json(
                 202,
                 {
@@ -221,8 +260,17 @@ class Handler(SimpleHTTPRequestHandler):
                 },
             )
             return
-        if self.path == "/api/chat":
+        if path == "/api/chat":
             self.handle_chat()
+            return
+        self.send_json(405, {"error": "Method not allowed"})
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+        if path.startswith("/api/") and not self.require_auth():
+            return
+        if path.startswith("/api/records/"):
+            self.handle_record_delete(path.rsplit("/", 1)[-1])
             return
         self.send_json(405, {"error": "Method not allowed"})
 
@@ -233,6 +281,110 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def handle_login(self):
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+
+        user = str(payload.get("user") or "").strip()
+        if user != ALLOWED_USER:
+            self.send_json(401, {"error": "Invalid user"})
+            return
+
+        token = create_session_token(user)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE}={token}; Max-Age={SESSION_MAX_AGE}; Path=/; HttpOnly; SameSite=Lax",
+        )
+        self.end_headers()
+        self.wfile.write(json.dumps({"authenticated": True, "user": user}).encode("utf-8"))
+
+    def handle_logout(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+        self.end_headers()
+        self.wfile.write(json.dumps({"authenticated": False}).encode("utf-8"))
+
+    def current_user(self):
+        token = parse_cookie(self.headers.get("Cookie", "")).get(SESSION_COOKIE)
+        return verify_session_token(token)
+
+    def require_auth(self):
+        if self.current_user():
+            return True
+        self.send_json(401, {"error": "Authentication required"})
+        return False
+
+    def handle_records_list(self):
+        user = self.current_user()
+        records = [
+            record
+            for record in read_records().get("records", [])
+            if record.get("user") == user
+        ]
+        records.sort(key=lambda item: item.get("updatedAt", ""), reverse=True)
+        self.send_json(200, {"records": records})
+
+    def handle_record_save(self):
+        user = self.current_user()
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_json(400, {"error": str(error)})
+            return
+
+        record = sanitize_record(payload, user)
+        now = iso_now()
+
+        with DATA_LOCK:
+            data = read_records_unlocked()
+            records = data.setdefault("records", [])
+            existing = next(
+                (
+                    item
+                    for item in records
+                    if item.get("id") == record.get("id") and item.get("user") == user
+                ),
+                None,
+            )
+            if existing:
+                record["createdAt"] = existing.get("createdAt") or now
+                record["updatedAt"] = now
+                existing.clear()
+                existing.update(record)
+            else:
+                record["id"] = record.get("id") or uuid.uuid4().hex
+                record["createdAt"] = now
+                record["updatedAt"] = now
+                records.append(record)
+            write_records_unlocked(data)
+
+        self.send_json(200, {"record": record})
+
+    def handle_record_delete(self, record_id):
+        user = self.current_user()
+        with DATA_LOCK:
+            data = read_records_unlocked()
+            records = data.setdefault("records", [])
+            next_records = [
+                item
+                for item in records
+                if not (item.get("id") == record_id and item.get("user") == user)
+            ]
+            deleted = len(next_records) != len(records)
+            data["records"] = next_records
+            write_records_unlocked(data)
+
+        if not deleted:
+            self.send_json(404, {"error": "Record not found"})
+            return
+        self.send_json(200, {"deleted": True})
 
     def handle_models(self):
         try:
@@ -408,6 +560,148 @@ class Handler(SimpleHTTPRequestHandler):
 def public_providers():
     keys = {"id", "name", "adapter", "baseUrl", "defaultModel", "models", "docs", "capabilities"}
     return [{key: provider[key] for key in keys if key in provider} for provider in PROVIDERS]
+
+
+def parse_cookie(header):
+    cookies = {}
+    for part in (header or "").split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        cookies[key.strip()] = value.strip()
+    return cookies
+
+
+def get_session_secret():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if SESSION_SECRET_FILE.exists():
+        return SESSION_SECRET_FILE.read_bytes()
+    secret = secrets.token_bytes(32)
+    SESSION_SECRET_FILE.write_bytes(secret)
+    os.chmod(SESSION_SECRET_FILE, 0o600)
+    return secret
+
+
+def b64_encode(raw):
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def b64_decode(value):
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def create_session_token(user):
+    payload = {
+        "user": user,
+        "exp": int(time.time()) + SESSION_MAX_AGE,
+        "nonce": secrets.token_urlsafe(12),
+    }
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    encoded = b64_encode(payload_bytes)
+    signature = hmac.new(get_session_secret(), encoded.encode("ascii"), hashlib.sha256).digest()
+    return f"{encoded}.{b64_encode(signature)}"
+
+
+def verify_session_token(token):
+    if not token or "." not in token:
+        return None
+    encoded, signature = token.split(".", 1)
+    expected = b64_encode(hmac.new(get_session_secret(), encoded.encode("ascii"), hashlib.sha256).digest())
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        payload = json.loads(b64_decode(encoded).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if payload.get("user") != ALLOWED_USER:
+        return None
+    if int(payload.get("exp") or 0) < int(time.time()):
+        return None
+    return payload["user"]
+
+
+def read_records():
+    with DATA_LOCK:
+        return read_records_unlocked()
+
+
+def read_records_unlocked():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not RECORDS_FILE.exists():
+        return {"records": []}
+    try:
+        data = json.loads(RECORDS_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"records": []}
+    if not isinstance(data, dict) or not isinstance(data.get("records"), list):
+        return {"records": []}
+    return data
+
+
+def write_records_unlocked(data):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    temp_file = RECORDS_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_file.replace(RECORDS_FILE)
+
+
+def sanitize_record(payload, user):
+    messages = sanitize_messages_for_record(payload.get("messages"))
+    title = safe_string(payload.get("title"), 120) or title_from_messages(messages)
+    return {
+        "id": safe_string(payload.get("id"), 80),
+        "user": user,
+        "title": title,
+        "providerId": safe_string(payload.get("providerId"), 80),
+        "model": safe_string(payload.get("model"), 180),
+        "baseUrl": safe_string(payload.get("baseUrl"), 400),
+        "systemPrompt": safe_string(payload.get("systemPrompt"), 8000),
+        "parameters": sanitize_parameters_for_record(payload.get("parameters")),
+        "messages": messages,
+    }
+
+
+def sanitize_messages_for_record(messages):
+    if not isinstance(messages, list):
+        return []
+    sanitized = []
+    for message in messages[-80:]:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").lower()
+        if role not in {"system", "user", "assistant"}:
+            continue
+        item = {
+            "role": role,
+            "content": safe_string(message.get("content"), 50000),
+        }
+        if message.get("reasoning"):
+            item["reasoning"] = safe_string(message.get("reasoning"), 50000)
+        if isinstance(message.get("usage"), dict):
+            item["usage"] = message["usage"]
+        sanitized.append(item)
+    return sanitized
+
+
+def sanitize_parameters_for_record(parameters):
+    if not isinstance(parameters, dict):
+        return {}
+    allowed = {"temperature", "topP", "maxTokens", "thinkingBudget", "thinkingEnabled", "reasoningEffort"}
+    return {key: parameters[key] for key in allowed if key in parameters}
+
+
+def title_from_messages(messages):
+    for message in messages:
+        if message.get("role") == "user" and message.get("content"):
+            return safe_string(message["content"].replace("\n", " "), 72)
+    return "Untitled record"
+
+
+def safe_string(value, limit):
+    if value is None:
+        return ""
+    return str(value).strip()[:limit]
 
 
 def get_provider(provider_id):

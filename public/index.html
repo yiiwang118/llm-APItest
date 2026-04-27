@@ -7,7 +7,22 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <section id="authScreen" class="auth-screen">
+      <form id="loginForm" class="login-card">
+        <div>
+          <div class="eyebrow">AI Studio</div>
+          <h1 data-i18n="loginTitle">Sign in</h1>
+        </div>
+        <div class="field-group">
+          <label for="loginUserInput" data-i18n="loginUser">User</label>
+          <input id="loginUserInput" name="user" autocomplete="username" placeholder="yiiwang" />
+        </div>
+        <div id="loginError" class="field-note is-error"></div>
+        <button class="primary-button login-button" type="submit" data-i18n="loginAction">Continue</button>
+      </form>
+    </section>
+
+    <div id="appShell" class="app-shell is-hidden">
       <aside class="sidebar" aria-label="Primary">
         <div class="brand">
           <div>
@@ -31,9 +46,19 @@
           </button>
         </nav>
 
+        <div class="record-rail">
+          <div class="rail-title" data-i18n="history">History</div>
+          <div id="recordList" class="record-list"></div>
+        </div>
+
         <div class="provider-rail">
           <div class="rail-title" data-i18n="providerRail">Providers</div>
           <div id="providerRail" class="provider-list"></div>
+        </div>
+
+        <div class="sidebar-footer">
+          <span id="userBadge"></span>
+          <button id="logoutButton" class="text-button" type="button" data-i18n="logout">Logout</button>
         </div>
       </aside>
 
@@ -43,6 +68,7 @@
             <h1 id="sessionTitle">Playground</h1>
             <div class="topbar-actions">
               <button id="languageToggle" class="ghost-button" type="button">中文</button>
+              <button id="saveRecord" class="ghost-button" type="button" data-i18n="save">Save</button>
               <button id="clearChat" class="ghost-button" type="button" data-i18n="clear">Clear</button>
               <button id="stopStream" class="ghost-button danger" type="button" disabled data-i18n="stop">Stop</button>
             </div>
