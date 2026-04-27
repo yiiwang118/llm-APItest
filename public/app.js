@@ -655,7 +655,7 @@ function readAttachment(file) {
       return Promise.reject(new Error(`${t("fileTooLarge")}: ${file.name}`));
     }
     return readFile(file, "dataUrl").then((dataUrl) => ({
-      id: crypto.randomUUID(),
+      id: uuid(),
       kind: "image",
       name: file.name,
       mimeType: file.type || "image/png",
@@ -669,7 +669,7 @@ function readAttachment(file) {
       return Promise.reject(new Error(`${t("fileTooLarge")}: ${file.name}`));
     }
     return readFile(file, "text").then((text) => ({
-      id: crypto.randomUUID(),
+      id: uuid(),
       kind: "text",
       name: file.name,
       mimeType: file.type || "text/plain",
@@ -1588,13 +1588,13 @@ function handleMessageCopy(button) {
   const index = Number(button.dataset.copyMessage);
   const message = state.messages[index];
   if (!message) return;
-  navigator.clipboard?.writeText(message.content || "").then(() => flashCopy(button));
+  clipboardWrite(message.content || "").then(() => flashCopy(button));
 }
 
 function handleCopy(button) {
   const block = button.closest(".code-block");
   const code = block?.querySelector("code")?.textContent || "";
-  navigator.clipboard?.writeText(code).then(() => flashCopy(button));
+  clipboardWrite(code).then(() => flashCopy(button));
 }
 
 function flashCopy(button) {
@@ -1990,4 +1990,37 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function uuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {}
+  }
+  const rand = () => Math.random().toString(36).slice(2, 10);
+  return `id-${Date.now().toString(36)}-${rand()}${rand()}`;
+}
+
+function clipboardWrite(text) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => clipboardFallback(text));
+  }
+  clipboardFallback(text);
+  return Promise.resolve();
+}
+
+function clipboardFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {}
+  document.body.removeChild(ta);
 }
